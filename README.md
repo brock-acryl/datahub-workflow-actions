@@ -117,3 +117,21 @@ Identifiers cannot be bound, so statements are templates — and every `{{ }}` i
 quoted `db.schema.table` for the connection's dialect). Unfiltered expressions fail validation and are refused at run time
 unless the step sets `unsafeRawTemplates: true`. Install drivers as extra pip requirements (`snowflake-sqlalchemy`,
 `psycopg2-binary`, `sqlalchemy-bigquery`, `databricks-sql-connector`).
+
+## Run history
+
+Every rule that fires is recorded in DataHub as a run, the model Airflow and dbt runs use: a data flow per
+workflow (`urn:li:dataFlow:(workflow-actions,<workflow id>,PROD)`), a data job per rule, and a process instance per
+fire with `STARTED`/`COMPLETE` events and a `SUCCESS`/`FAILURE` result. The instance is named after the rule and its
+custom properties carry `requestUrn`, `requesterUrn`, `entityUrn`, `operation`, `result`, `status`, `reason` and a
+compact `steps` JSON report; the requested dataset is attached as the run's input. The MFE shows these as "View runs"
+per rule and "Actions taken" per request. Recording is best-effort (it never fails the action) and dry runs are skipped
+unless enabled:
+
+```yaml
+source:
+  config:
+    runHistory:
+      enabled: true          # default
+      recordDryRuns: false   # default
+```
