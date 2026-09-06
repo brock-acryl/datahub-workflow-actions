@@ -200,6 +200,21 @@ class RunRecorder:
             },
         )
         instance.emit_process_start(self.emitter, started_ms, emit_template=False, materialize_iolets=False)
+        # The SDK names the instance after its id; users should see the rule's name.
+        from datahub.emitter.mcp import MetadataChangeProposalWrapper
+        from datahub.metadata.schema_classes import AuditStampClass, DataProcessInstancePropertiesClass, DataProcessTypeClass
+
+        self.emitter.emit(
+            MetadataChangeProposalWrapper(
+                entityUrn=str(instance.urn),
+                aspect=DataProcessInstancePropertiesClass(
+                    name=str(getattr(rule, "name", None) or run.ruleId),
+                    type=DataProcessTypeClass.BATCH_AD_HOC,
+                    created=AuditStampClass(time=started_ms, actor="urn:li:corpuser:datahub"),
+                    customProperties=dict(instance.properties),
+                ),
+            )
+        )
         ok = run.status in ("ok", "dry-run")
         instance.emit_process_end(
             self.emitter,
