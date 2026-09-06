@@ -672,6 +672,76 @@
     }
   },
   {
+    "type": "sql",
+    "label": "Run SQL",
+    "description": "Execute templated SQL (e.g. GRANT) on a named connection.",
+    "group": "Integration",
+    "params": {
+      "connection": {
+        "description": "Name of a connection declared in the action config.",
+        "title": "Connection",
+        "type": "string"
+      },
+      "statements": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "One statement, or a list run in order. Wrap identifiers with sql_table / sql_ident.",
+        "title": "Statements"
+      },
+      "parameters": {
+        "anyOf": [
+          {
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Bound parameters (:name) for values that can be bound.",
+        "title": "Parameters"
+      },
+      "transaction": {
+        "default": true,
+        "description": "Run all statements in one transaction.",
+        "title": "Transaction",
+        "type": "boolean"
+      },
+      "maxRows": {
+        "default": 100,
+        "description": "Rows kept in the output for SELECT-like statements.",
+        "maximum": 10000,
+        "minimum": 0,
+        "title": "Maxrows",
+        "type": "integer"
+      },
+      "unsafeRawTemplates": {
+        "default": false,
+        "description": "Allow {{ }} expressions without a sql_* filter (not recommended).",
+        "title": "Unsaferawtemplates",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "connection",
+      "statements"
+    ],
+    "outputs": {
+      "rowcount": "Rows affected by the last statement",
+      "rows": "Rows returned by the last statement (capped)",
+      "statements": "Statements as executed"
+    }
+  },
+  {
     "type": "teams",
     "label": "Post to Microsoft Teams",
     "description": "Send a message to a Teams channel via incoming webhook.",

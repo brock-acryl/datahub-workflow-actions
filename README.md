@@ -76,3 +76,30 @@ schema, CLI and MFE form follow.
 ```bash
 pip install -e '.[dev]' && pytest
 ```
+
+## SQL steps
+
+`sql` runs templated statements on a **named connection** declared once in the action config — never in a rule:
+
+```yaml
+source:
+  config:
+    connections:
+      warehouse: ${SNOWFLAKE_URL}            # any SQLAlchemy URL; ${ENV} placeholders resolve on the executor
+      pg: { url: postgresql://user:pass@host/db }
+    rules:
+      - steps:
+          - id: grant
+            type: sql
+            params:
+              connection: warehouse
+              statements:
+                - GRANT SELECT ON TABLE {{ entity.urn | sql_table }} TO ROLE {{ form.field_role | sql_ident }}
+              parameters: {}                  # :name bindings for values that can be bound
+```
+
+Identifiers cannot be bound, so statements are templates — and every `{{ }}` in a statement **must** pass through a
+`sql_*` filter (`sql_ident`, `sql_literal`, `sql_table`, `sql_schema`, `sql_database`; dataset URNs decompose into
+quoted `db.schema.table` for the connection's dialect). Unfiltered expressions fail validation and are refused at run time
+unless the step sets `unsafeRawTemplates: true`. Install drivers as extra pip requirements (`snowflake-sqlalchemy`,
+`psycopg2-binary`, `sqlalchemy-bigquery`, `databricks-sql-connector`).

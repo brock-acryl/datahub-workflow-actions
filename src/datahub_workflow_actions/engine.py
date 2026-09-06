@@ -138,6 +138,11 @@ class Engine:
         except KeyError as e:
             return StepRun(step.id, step.type, "failed", error=str(e))
 
+        if definition.validate_template:
+            problems = definition.validate_template(step.params)
+            if problems:
+                return StepRun(step.id, step.type, "failed", error="; ".join(problems))
+
         if step.forEach:
             try:
                 items = render_value(step.forEach, context) if "{{" in step.forEach else _path_items(context, step.forEach)
@@ -189,6 +194,7 @@ class Engine:
             sleep=self.run_context.sleep,
             env=self.run_context.env,
             context=dict(context),
+            connections=self.run_context.connections,
         )
         last_error: Optional[str] = None
         status = "failed"

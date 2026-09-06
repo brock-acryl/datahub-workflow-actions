@@ -27,6 +27,7 @@ class RunContext:
     sleep: Callable[[float], None] = field(default=lambda s: __import__("time").sleep(s))
     env: Dict[str, str] = field(default_factory=lambda: dict(__import__("os").environ))
     context: Dict[str, Any] = field(default_factory=dict)  # the event context document
+    connections: Dict[str, str] = field(default_factory=dict)  # name → SQLAlchemy URL (from the action config)
 
     def session(self) -> requests.Session:
         if self.http is None:
@@ -50,6 +51,8 @@ class StepDefinition:
     params: Type[StepParams]
     run: Callable[[Any, RunContext], dict]
     outputs: Dict[str, str] = field(default_factory=dict)
+    # Inspects RAW (unrendered) params; returns problems. Used by the engine before rendering and by `validate`.
+    validate_template: Optional[Callable[[Dict[str, Any]], List[str]]] = None
 
     def describe(self) -> dict:
         schema = self.params.model_json_schema()
@@ -67,9 +70,18 @@ class StepDefinition:
 REGISTRY: Dict[str, StepDefinition] = {}
 
 
-def step(type_: str, *, label: str, description: str, group: str, params: Type[StepParams], outputs: Optional[Dict[str, str]] = None):
+def step(
+    type_: str,
+    *,
+    label: str,
+    description: str,
+    group: str,
+    params: Type[StepParams],
+    outputs: Optional[Dict[str, str]] = None,
+    validate_template: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
+):
     def decorator(fn: Callable[[Any, RunContext], dict]) -> Callable[[Any, RunContext], dict]:
-        REGISTRY[type_] = StepDefinition(type_, label, description, group, params, fn, outputs or {})
+        REGISTRY[type_] = StepDefinition(type_, label, description, group, params, fn, outputs or {}, validate_template)
         return fn
 
     return decorator
@@ -95,4 +107,4 @@ def catalog() -> List[dict]:
 
 def _ensure_loaded() -> None:
     # Import the built-in step modules once; they register themselves.
-    from datahub_workflow_actions.steps import integration, metadata  # noqa: F401
+    from datahub_workflow_actions.steps import integration, metadata, sql  # noqa: F401

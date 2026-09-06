@@ -43,13 +43,17 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print(f"INVALID: {e}", file=sys.stderr)
         return 1
     unknown = []
-    from datahub_workflow_actions.steps import known_step_types
+    from datahub_workflow_actions.steps import get_step, known_step_types
 
     known = set(known_step_types())
     for rule in config.rules:
         for step in rule.steps:
             if step.type not in known:
                 unknown.append(f"{rule.id}/{step.id}: unknown step type '{step.type}'")
+                continue
+            hook = get_step(step.type).validate_template
+            for problem in hook(step.params) if hook else []:
+                unknown.append(f"{rule.id}/{step.id}: {problem}")
     if unknown:
         print("INVALID:\n  " + "\n  ".join(unknown), file=sys.stderr)
         return 1
@@ -67,7 +71,12 @@ def cmd_simulate(args: argparse.Namespace) -> int:
         from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
 
         graph = DataHubGraph(DatahubClientConfig(server=args.gms, token=args.token))
-    engine = Engine(RunContext(graph=graph), dry_run=not args.execute)
+    from datahub_workflow_actions.action import normalize_connections
+
+    raw_config = _load(args.rules)
+    source_config = (raw_config.get("source") or {}).get("config") if isinstance(raw_config, dict) else None
+    connections = normalize_connections((source_config or raw_config or {}).get("connections") if isinstance(raw_config, dict) else None)
+    engine = Engine(RunContext(graph=graph, connections=connections), dry_run=not args.execute)
     runs = engine.run(config, context)
     output = {"context": context if args.show_context else None, "runs": [r.to_dict() for r in runs]}
     if not args.show_context:

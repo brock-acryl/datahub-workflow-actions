@@ -19,7 +19,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "responses>=0.25"]
+dev = ["pytest>=8", "responses>=0.25", "SQLAlchemy>=1.4"]
+sql = ["SQLAlchemy>=1.4"]
 
 [project.scripts]
 workflow-actions = "datahub_workflow_actions.cli:main"

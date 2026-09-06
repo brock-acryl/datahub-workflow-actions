@@ -30,6 +30,22 @@ except ImportError:  # pragma: no cover
     ENTITY_CHANGE_EVENT_V1_TYPE = "EntityChangeEvent_v1"
 
 
+def normalize_connections(raw: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """``connections: {name: url}`` or ``{name: {url: ...}}`` → ``{name: url}``.
+    ``${VAR}`` placeholders in URLs resolve from the environment."""
+    import os
+    import re
+
+    result: Dict[str, str] = {}
+    for name, value in (raw or {}).items():
+        url = value.get("url") if isinstance(value, dict) else value
+        if not url:
+            continue
+        url = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", lambda m: os.environ.get(m.group(1), m.group(0)), str(url))
+        result[str(name)] = url
+    return result
+
+
 def load_config(config_dict: Dict[str, Any]) -> RulesConfig:
     rules_file = config_dict.get("rulesFile")
     if rules_file:
@@ -46,13 +62,22 @@ def load_config(config_dict: Dict[str, Any]) -> RulesConfig:
 
 
 class WorkflowActionsAction(Action):  # type: ignore[misc]
-    def __init__(self, config: RulesConfig, ctx: Any, *, state_path: Optional[str] = None, dry_run: bool = False, in_memory_state: bool = False):
+    def __init__(
+        self,
+        config: RulesConfig,
+        ctx: Any,
+        *,
+        state_path: Optional[str] = None,
+        dry_run: bool = False,
+        in_memory_state: bool = False,
+        connections: Optional[Dict[str, Any]] = None,
+    ):
         self.config = config
         self.ctx = ctx
         graph = getattr(getattr(ctx, "graph", None), "graph", None)
         self.resolver = GraphResolver(graph) if graph is not None else None
         state = InMemoryStateStore() if in_memory_state else SqliteStateStore(state_path or default_state_path())
-        self.engine = Engine(RunContext(graph=graph), state=state, dry_run=dry_run)
+        self.engine = Engine(RunContext(graph=graph, connections=normalize_connections(connections)), state=state, dry_run=dry_run)
         logger.info(
             "workflow-actions: loaded %s rule(s) for %s workflow(s)%s",
             len(config.rules),
@@ -69,6 +94,7 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
             state_path=config_dict.get("statePath"),
             dry_run=bool(config_dict.get("dryRun", False)),
             in_memory_state=bool(config_dict.get("inMemoryState", False)),
+            connections=config_dict.get("connections"),
         )
 
     def act(self, event: Any) -> None:
