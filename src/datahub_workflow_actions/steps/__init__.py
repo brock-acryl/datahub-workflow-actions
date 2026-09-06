@@ -27,7 +27,8 @@ class RunContext:
     sleep: Callable[[float], None] = field(default=lambda s: __import__("time").sleep(s))
     env: Dict[str, str] = field(default_factory=lambda: dict(__import__("os").environ))
     context: Dict[str, Any] = field(default_factory=dict)  # the event context document
-    connections: Dict[str, str] = field(default_factory=dict)  # name → SQLAlchemy URL (from the action config)
+    connections: Dict[str, str] = field(default_factory=dict)  # name → SQLAlchemy URL (plain `url` connections)
+    connection_resolver: Any = None  # connections.ConnectionResolver — ingestionSource / fromEntity kinds need the graph
 
     def session(self) -> requests.Session:
         if self.http is None:

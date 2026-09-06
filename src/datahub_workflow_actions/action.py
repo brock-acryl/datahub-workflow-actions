@@ -31,19 +31,11 @@ except ImportError:  # pragma: no cover
 
 
 def normalize_connections(raw: Optional[Dict[str, Any]]) -> Dict[str, str]:
-    """``connections: {name: url}`` or ``{name: {url: ...}}`` → ``{name: url}``.
-    ``${VAR}`` placeholders in URLs resolve from the environment."""
-    import os
-    import re
+    """Plain ``url`` connections as ``{name: url}`` with ``${VAR}`` resolved from the environment.
+    Kept for callers that only need URLs; the engine uses ``ConnectionResolver`` (all kinds)."""
+    from datahub_workflow_actions.connections import parse_connections, substitute_env
 
-    result: Dict[str, str] = {}
-    for name, value in (raw or {}).items():
-        url = value.get("url") if isinstance(value, dict) else value
-        if not url:
-            continue
-        url = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", lambda m: os.environ.get(m.group(1), m.group(0)), str(url))
-        result[str(name)] = url
-    return result
+    return {name: substitute_env(spec.url or "") for name, spec in parse_connections(raw).items() if spec.kind == "url" and spec.url}
 
 
 def load_config(config_dict: Dict[str, Any]) -> RulesConfig:
@@ -77,7 +69,16 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         graph = getattr(getattr(ctx, "graph", None), "graph", None)
         self.resolver = GraphResolver(graph) if graph is not None else None
         state = InMemoryStateStore() if in_memory_state else SqliteStateStore(state_path or default_state_path())
-        self.engine = Engine(RunContext(graph=graph, connections=normalize_connections(connections)), state=state, dry_run=dry_run)
+        from datahub_workflow_actions.connections import ConnectionResolver, validate_connections
+
+        for problem in validate_connections(connections):
+            logger.warning("workflow-actions: %s", problem)
+        run_context = RunContext(
+            graph=graph,
+            connections=normalize_connections(connections),
+            connection_resolver=ConnectionResolver.from_config(connections, graph=graph),
+        )
+        self.engine = Engine(run_context, state=state, dry_run=dry_run)
         logger.info(
             "workflow-actions: loaded %s rule(s) for %s workflow(s)%s",
             len(config.rules),

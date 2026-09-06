@@ -38,7 +38,8 @@ def cmd_catalog(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     try:
-        config = load_rules(_load(args.rules))
+        raw = _load(args.rules)
+        config = load_rules(raw)
     except Exception as e:  # noqa: BLE001
         print(f"INVALID: {e}", file=sys.stderr)
         return 1
@@ -57,8 +58,37 @@ def cmd_validate(args: argparse.Namespace) -> int:
     if unknown:
         print("INVALID:\n  " + "\n  ".join(unknown), file=sys.stderr)
         return 1
+    connection_problems = _connection_problems(raw, config)
+    if connection_problems:
+        print("INVALID:\n  " + "\n  ".join(connection_problems), file=sys.stderr)
+        return 1
     print(f"OK: {len(config.rules)} rule(s), schemaVersion {config.schemaVersion}")
     return 0
+
+
+def _raw_source_config(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    source_config = (raw.get("source") or {}).get("config") if isinstance(raw.get("source"), dict) else None
+    return source_config if isinstance(source_config, dict) else raw
+
+
+def _connection_problems(raw: Any, config: RulesConfig) -> list:
+    """Connection specs must be well-formed, and — when any are declared — every sql step must name one of them."""
+    from datahub_workflow_actions.connections import parse_connections, validate_connections
+
+    source_config = _raw_source_config(raw)
+    declared = source_config.get("connections")
+    problems = list(validate_connections(declared))
+    names = set(parse_connections(declared)) if declared else None
+    for rule in config.rules:
+        for step in rule.steps:
+            if step.type != "sql":
+                continue
+            name = (step.params or {}).get("connection")
+            if names is not None and name and name not in names:
+                problems.append(f"{rule.id}/{step.id}: connection '{name}' is not declared under connections ({', '.join(sorted(names)) or 'none'})")
+    return problems
 
 
 def cmd_simulate(args: argparse.Namespace) -> int:
@@ -72,11 +102,15 @@ def cmd_simulate(args: argparse.Namespace) -> int:
 
         graph = DataHubGraph(DatahubClientConfig(server=args.gms, token=args.token))
     from datahub_workflow_actions.action import normalize_connections
+    from datahub_workflow_actions.connections import ConnectionResolver
 
-    raw_config = _load(args.rules)
-    source_config = (raw_config.get("source") or {}).get("config") if isinstance(raw_config, dict) else None
-    connections = normalize_connections((source_config or raw_config or {}).get("connections") if isinstance(raw_config, dict) else None)
-    engine = Engine(RunContext(graph=graph, connections=connections), dry_run=not args.execute)
+    raw_connections = _raw_source_config(_load(args.rules)).get("connections")
+    run_context = RunContext(
+        graph=graph,
+        connections=normalize_connections(raw_connections),
+        connection_resolver=ConnectionResolver.from_config(raw_connections, graph=graph),
+    )
+    engine = Engine(run_context, dry_run=not args.execute)
     runs = engine.run(config, context)
     output = {"context": context if args.show_context else None, "runs": [r.to_dict() for r in runs]}
     if not args.show_context:

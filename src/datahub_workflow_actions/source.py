@@ -38,7 +38,7 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
     statePath: Optional[str] = None
     dryRun: bool = False
     pipelineName: str = "workflow-actions"
-    connections: Optional[Dict[str, Any]] = Field(None, description="Named SQLAlchemy connections for `sql` steps: {name: url | {url}}; ${ENV} placeholders allowed.")
+    connections: Optional[Dict[str, Any]] = Field(None, description="Connections for `sql` steps: {name: url | {url} | {ingestionSource: urn} | {fromEntity: true}}. URLs may use ${SECRET} placeholders.")
     sqlTemplates: Optional[list] = Field(None, description="Opaque to the action: SQL statement templates managed by the MFE.")
 
 

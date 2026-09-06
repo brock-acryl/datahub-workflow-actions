@@ -79,14 +79,20 @@ pip install -e '.[dev]' && pytest
 
 ## SQL steps
 
-`sql` runs templated statements on a **named connection** declared once in the action config — never in a rule:
+`sql` runs templated statements on a **named connection** declared once in the action config — never in a rule. A
+connection is one of three kinds, mirroring how DataHub Cloud assertions get their credentials:
 
 ```yaml
 source:
   config:
     connections:
-      warehouse: ${SNOWFLAKE_URL}            # any SQLAlchemy URL; ${ENV} placeholders resolve on the executor
-      pg: { url: postgresql://user:pass@host/db }
+      warehouse:                                    # 1. reuse an ingestion source's recipe + secrets
+        ingestionSource: urn:li:dataHubIngestionSource:abc
+      pg_reports:                                   # 2. a SQLAlchemy URL; the password is a ${SECRET} reference
+        url: postgresql://reports:${PG_REPORTS_PASSWORD}@host:5432/reports
+        platform: postgres
+      entity:                                       # 3. whichever source produced the event's entity
+        fromEntity: true
     rules:
       - steps:
           - id: grant
@@ -97,6 +103,14 @@ source:
                 - GRANT SELECT ON TABLE {{ entity.urn | sql_table }} TO ROLE {{ form.field_role | sql_ident }}
               parameters: {}                  # :name bindings for values that can be bound
 ```
+
+For kinds 1 and 3 the action fetches the source through GraphQL (`ingestionSource` / `ingestionSourceForEntity`, the
+latter DataHub Cloud), resolves `${SECRETS}` in its recipe through the DataHub secret stores (UI secrets → mounted files
+→ environment, same precedence as the executor) and builds a SQLAlchemy URL from the platform config — Snowflake,
+Databricks/Unity Catalog (needs a `warehouse_id`), BigQuery (service-account `credential`), Postgres, Redshift, MySQL and
+the other `host_port`/`sqlalchemy_uri` sources. CLI-managed sources are refused. Dry runs describe the connection
+(kind, source, dialect) without fetching recipes or secrets. `validate` rejects literal passwords in URLs and `sql`
+steps that name an undeclared connection. Extra keys in a spec (`platform`, `description`) are preserved for the MFE.
 
 Identifiers cannot be bound, so statements are templates — and every `{{ }}` in a statement **must** pass through a
 `sql_*` filter (`sql_ident`, `sql_literal`, `sql_table`, `sql_schema`, `sql_database`; dataset URNs decompose into

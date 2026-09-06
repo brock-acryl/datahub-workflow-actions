@@ -69,7 +69,7 @@ def test_sql_step_runs_against_sqlite_with_bound_params_and_outputs():
 
 def test_sql_step_dry_run_and_unknown_connection():
     out = run("sql", {"connection": "warehouse", "statements": "GRANT SELECT ON t TO r"}, RunContext(dry_run=True, connections={"warehouse": "snowflake://x"}))
-    assert out == {"dryRun": True, "connection": "warehouse", "dialect": "snowflake", "statements": ["GRANT SELECT ON t TO r"], "parameters": {}}
+    assert out == {"dryRun": True, "connection": "warehouse", "kind": "url", "dialect": "snowflake", "statements": ["GRANT SELECT ON t TO r"], "parameters": {}}
     with pytest.raises(ValueError, match="unknown connection"):
         run("sql", {"connection": "nope", "statements": "SELECT 1"}, RunContext(connections={}))
 

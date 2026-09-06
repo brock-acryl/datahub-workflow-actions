@@ -6,7 +6,9 @@ Identifiers can't be bound, so statements are Jinja templates; every
 step opts into ``unsafeRawTemplates``. Values that *can* be bound go in
 ``parameters`` (``:name`` style). Connections are declared once in the action
 config (``connections: {warehouse: ${SNOWFLAKE_URL}}``) and referenced by
-name, so no credential ever sits in a rule."""
+name, so no credential ever sits in a rule. A connection is a URL, a reused
+ingestion source, or "the source that produced the event entity" — see
+``connections.py``."""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
 
+from datahub_workflow_actions.connections import ConnectionResolver, ResolvedConnection, dialect_of
 from datahub_workflow_actions.steps import RunContext, StepParams, step
 from datahub_workflow_actions.templating import find_unsafe_sql_expressions, set_sql_dialect
 
@@ -21,7 +24,7 @@ Statements = Union[str, List[str]]
 
 
 class SqlParams(StepParams):
-    connection: str = Field(description="Name of a connection declared in the action config.")
+    connection: str = Field(description="Name of a connection declared under connections: a SQLAlchemy URL, a reused ingestion source, or fromEntity.")
     statements: Statements = Field(description="One statement, or a list run in order. Wrap identifiers with sql_table / sql_ident.")
     parameters: Optional[Dict[str, Any]] = Field(None, description="Bound parameters (:name) for values that can be bound.")
     transaction: bool = Field(True, description="Run all statements in one transaction.")
@@ -44,8 +47,17 @@ def validate_sql_template(raw_params: Dict[str, Any]) -> List[str]:
     return problems
 
 
-def _dialect_of(url: str) -> str:
-    return url.split(":", 1)[0].split("+", 1)[0].lower() if url else "ansi"
+_PLATFORM_DIALECTS = {"snowflake": "snowflake", "databricks": "databricks", "bigquery": "bigquery", "postgres": "postgresql", "redshift": "redshift", "mysql": "mysql"}
+
+
+def _dialect_for_platform(platform: Any) -> str:
+    return _PLATFORM_DIALECTS.get(str(platform or "").lower(), "ansi")
+
+
+def _resolver(ctx: RunContext) -> ConnectionResolver:
+    if ctx.connection_resolver is not None:
+        return ctx.connection_resolver
+    return ConnectionResolver.from_config(dict(ctx.connections), graph=ctx.graph)
 
 
 @step(
@@ -58,21 +70,25 @@ def _dialect_of(url: str) -> str:
     validate_template=validate_sql_template,
 )
 def sql(p: SqlParams, ctx: RunContext) -> dict:
-    url = ctx.connections.get(p.connection)
-    if not url and not ctx.dry_run:
-        raise ValueError(f"sql: unknown connection '{p.connection}' — declare it under connections in the action config")
-    set_sql_dialect(_dialect_of(url or ""))
+    resolver = _resolver(ctx)
     statements = _statements(p.statements)
     if not statements:
         raise ValueError("sql: no statements")
     if ctx.dry_run:
-        return {"dryRun": True, "connection": p.connection, "dialect": _dialect_of(url or ""), "statements": statements, "parameters": p.parameters or {}}
+        described = resolver.describe(p.connection, ctx.context)
+        if described.get("kind") == "undeclared":
+            raise ValueError(f"sql: unknown connection '{p.connection}' — declare it under connections in the action config")
+        set_sql_dialect(described.get("dialect") or _dialect_for_platform(described.get("platform")))
+        return {"dryRun": True, **described, "statements": statements, "parameters": p.parameters or {}}
+    resolved: ResolvedConnection = resolver.resolve(p.connection, ctx.context)
+    url = resolved.url
+    set_sql_dialect(resolved.dialect)
     try:
         from sqlalchemy import create_engine, text
     except ImportError as e:  # pragma: no cover
         raise RuntimeError("sql step needs SQLAlchemy: pip install 'datahub-workflow-actions[sql]' plus the driver") from e
 
-    engine = create_engine(url)
+    engine = create_engine(url, **resolved.engine_kwargs)
     rowcount: Optional[int] = None
     rows: List[Any] = []
     try:
@@ -93,4 +109,4 @@ def sql(p: SqlParams, ctx: RunContext) -> dict:
                     connection.commit()
     finally:
         engine.dispose()
-    return {"rowcount": rowcount, "rows": rows, "statements": statements}
+    return {"rowcount": rowcount, "rows": rows, "statements": statements, **{k: v for k, v in resolved.describe().items() if k != "connection"}}

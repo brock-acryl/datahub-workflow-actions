@@ -678,7 +678,7 @@
     "group": "Integration",
     "params": {
       "connection": {
-        "description": "Name of a connection declared in the action config.",
+        "description": "Name of a connection declared under connections: a SQLAlchemy URL, a reused ingestion source, or fromEntity.",
         "title": "Connection",
         "type": "string"
       },
