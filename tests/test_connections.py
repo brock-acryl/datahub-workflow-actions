@@ -161,3 +161,18 @@ def test_validate_cli_checks_connection_specs_and_references(tmp_path, capsys):
     recipe["source"]["config"]["rules"][0]["steps"][0]["params"]["connection"] = "warehouse"
     path.write_text(json.dumps(recipe))
     assert main(["validate", str(path)]) == 0
+
+
+def test_engine_passes_the_resolver_to_steps():
+    from datahub_workflow_actions.contract import load_rules
+    from datahub_workflow_actions.engine import Engine
+    from datahub_workflow_actions.context import StaticResolver, build_context
+    from tests.conftest import FIXTURES, WF, completed_event
+
+    rules = load_rules({"schemaVersion": 1, "rules": [{
+        "id": "r", "name": "r", "workflowUrn": WF, "on": {"operation": "COMPLETED", "result": "ACCEPTED"},
+        "steps": [{"id": "grant", "type": "sql", "params": {"connection": "entity", "statements": ["SELECT 1"]}}]}]})
+    resolver = ConnectionResolver.from_config({"entity": {"fromEntity": True}})
+    engine = Engine(RunContext(connection_resolver=resolver), dry_run=True)
+    runs = engine.run(rules, build_context(completed_event(), StaticResolver(FIXTURES)))
+    assert runs[0].status == "dry-run" and runs[0].steps[0].output["kind"] == "fromEntity" and runs[0].steps[0].output["entity"] == DATASET

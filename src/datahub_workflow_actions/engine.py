@@ -195,6 +195,7 @@ class Engine:
             env=self.run_context.env,
             context=dict(context),
             connections=self.run_context.connections,
+            connection_resolver=self.run_context.connection_resolver,
         )
         last_error: Optional[str] = None
         status = "failed"
