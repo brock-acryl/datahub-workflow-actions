@@ -40,6 +40,7 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
     pipelineName: str = "workflow-actions"
     connections: Optional[Dict[str, Any]] = Field(None, description="Connections for `sql` steps: {name: url | {url} | {ingestionSource: urn} | {fromEntity: true}}. URLs may use ${SECRET} placeholders.")
     sqlTemplates: Optional[list] = Field(None, description="Opaque to the action: SQL statement templates managed by the MFE.")
+    runHistory: Optional[Dict[str, Any]] = Field(None, description="Run history recorded to DataHub as data-process runs: {enabled: true, recordDryRuns: false}.")
 
 
 class WorkflowActionsSource(Source):  # type: ignore[misc]
@@ -70,6 +71,7 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
                     "rules": [r.model_dump(exclude_none=True) for r in self.rules.rules],
                     **({"statePath": self.config.statePath} if self.config.statePath else {}),
                     **({"connections": self.config.connections} if self.config.connections else {}),
+                    **({"runHistory": self.config.runHistory} if self.config.runHistory else {}),
                     "dryRun": self.config.dryRun,
                 },
             },

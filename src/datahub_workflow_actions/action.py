@@ -63,6 +63,7 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         dry_run: bool = False,
         in_memory_state: bool = False,
         connections: Optional[Dict[str, Any]] = None,
+        run_history: Optional[Dict[str, Any]] = None,
     ):
         self.config = config
         self.ctx = ctx
@@ -79,6 +80,9 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
             connection_resolver=ConnectionResolver.from_config(connections, graph=graph),
         )
         self.engine = Engine(run_context, state=state, dry_run=dry_run)
+        from datahub_workflow_actions.runs import RunRecorder
+
+        self.recorder = RunRecorder.from_config(graph, run_history)
         logger.info(
             "workflow-actions: loaded %s rule(s) for %s workflow(s)%s",
             len(config.rules),
@@ -96,6 +100,7 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
             dry_run=bool(config_dict.get("dryRun", False)),
             in_memory_state=bool(config_dict.get("inMemoryState", False)),
             connections=config_dict.get("connections"),
+            run_history=config_dict.get("runHistory"),
         )
 
     def act(self, event: Any) -> None:
@@ -117,8 +122,14 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
 
             resolver = StaticResolver()
         context = build_context(payload, resolver)
+        import time as _time
+
+        started_ms = int(_time.time() * 1000)
         runs = self.engine.run(RulesConfig(schemaVersion=self.config.schemaVersion, rules=candidates), context)
+        rules_by_id = {r.id: r for r in candidates}
         for run in runs:
+            if self.recorder is not None and run.fired:
+                self.recorder.record(run, rules_by_id.get(run.ruleId), context, started_ms=started_ms)
             if run.fired:
                 logger.info("workflow-actions: rule %s → %s (%s)", run.ruleId, run.status, run.reason or f"{len(run.steps)} step(s)")
                 for step in run.steps:
