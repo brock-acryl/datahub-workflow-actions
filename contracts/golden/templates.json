@@ -1,0 +1,24 @@
+{
+  "context": {
+    "event": {"operation": "COMPLETED", "result": "ACCEPTED", "time": 1754000000000},
+    "entity": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)", "name": "db.sales.orders", "type": "dataset", "owners": ["urn:li:corpuser:a", "urn:li:corpGroup:g"]},
+    "requester": {"urn": "urn:li:corpuser:jdoe", "email": "jdoe@example.com", "name": "Jane Doe"},
+    "form": {"field_abc": "restricted", "field_multi": ["x", "y"]},
+    "workflow": {"name": "Access Request"},
+    "steps": {"ticket": {"output": {"key": "DATA-42"}}}
+  },
+  "vectors": [
+    {"template": "{{ entity.urn }}", "expected": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)"},
+    {"template": "{{ entity.urn | urn_name }}", "expected": "db.sales.orders"},
+    {"template": "{{ requester.urn | urn_name }}", "expected": "jdoe"},
+    {"template": "{{ requester.name }} was approved for {{ entity.name }}", "expected": "Jane Doe was approved for db.sales.orders"},
+    {"template": "{{ form.field_abc }}", "expected": "restricted"},
+    {"template": "{{ form.field_multi | join(', ') }}", "expected": "x, y"},
+    {"template": "{{ event.time | date }}", "expected": "2025-07-31"},
+    {"template": "Ticket {{ steps.ticket.output.key }}", "expected": "Ticket DATA-42"},
+    {"template": "{{ entity.owners }}", "expected_object": ["urn:li:corpuser:a", "urn:li:corpGroup:g"]},
+    {"template": "{{ form | json }}", "expected": "{\"field_abc\": \"restricted\", \"field_multi\": [\"x\", \"y\"]}"},
+    {"template": "plain text, no template", "expected": "plain text, no template"},
+    {"template": "{{ form.reasn }}", "error": true}
+  ]
+}

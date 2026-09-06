@@ -1,0 +1,400 @@
+{
+  "$defs": {
+    "Filter": {
+      "additionalProperties": false,
+      "description": "One condition over a dotted path into the context document.",
+      "properties": {
+        "field": {
+          "description": "Dotted path, e.g. form.field_abc, entity.type, requester.groups",
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "condition": {
+          "default": "EQUAL",
+          "enum": [
+            "EQUAL",
+            "CONTAIN",
+            "START_WITH",
+            "END_WITH",
+            "EXISTS",
+            "IN",
+            "GREATER_THAN",
+            "LESS_THAN",
+            "MATCHES"
+          ],
+          "title": "Condition",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "negated": {
+          "default": false,
+          "title": "Negated",
+          "type": "boolean"
+        },
+        "caseInsensitive": {
+          "default": false,
+          "title": "Caseinsensitive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "Filter",
+      "type": "object"
+    },
+    "FilterGroup": {
+      "additionalProperties": false,
+      "description": "AND/OR over conditions; groups nest (``(A and B) or C``).",
+      "properties": {
+        "operator": {
+          "enum": [
+            "AND",
+            "OR"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "filters": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FilterGroup"
+              },
+              {
+                "$ref": "#/$defs/Filter"
+              }
+            ]
+          },
+          "title": "Filters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operator"
+      ],
+      "title": "FilterGroup",
+      "type": "object"
+    },
+    "RetryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "default": 1,
+          "description": "Total attempts including the first.",
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "backoff": {
+          "default": "exponential",
+          "enum": [
+            "fixed",
+            "exponential"
+          ],
+          "title": "Backoff",
+          "type": "string"
+        },
+        "delaySeconds": {
+          "default": 1.0,
+          "minimum": 0.0,
+          "title": "Delayseconds",
+          "type": "number"
+        },
+        "maxDelaySeconds": {
+          "default": 60.0,
+          "minimum": 0.0,
+          "title": "Maxdelayseconds",
+          "type": "number"
+        }
+      },
+      "title": "RetryPolicy",
+      "type": "object"
+    },
+    "Rule": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "workflowUrn": {
+          "minLength": 1,
+          "title": "Workflowurn",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "on": {
+          "$ref": "#/$defs/Trigger"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterGroup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "onError": {
+          "default": "fail",
+          "description": "Default error policy for steps.",
+          "enum": [
+            "fail",
+            "continue",
+            "stop"
+          ],
+          "title": "Onerror",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workflowUrn",
+        "on"
+      ],
+      "title": "Rule",
+      "type": "object"
+    },
+    "Step": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "A step type from the catalog (add_tag, webhook, \u2026).",
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "params": {
+          "description": "Templated values ({{ path }}).",
+          "title": "Params",
+          "type": "object"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterGroup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "onError": {
+          "anyOf": [
+            {
+              "enum": [
+                "fail",
+                "continue",
+                "stop"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overrides the rule default (fail).",
+          "title": "Onerror"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timeoutSeconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeoutseconds"
+        },
+        "forEach": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path or template yielding a list; the step runs once per element as `item`.",
+          "title": "Foreach"
+        },
+        "idempotencyKey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Template; defaults to event id + rule id + step id (+ item index).",
+          "title": "Idempotencykey"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Step",
+      "type": "object"
+    },
+    "Trigger": {
+      "additionalProperties": false,
+      "description": "Which lifecycle event fires the rule.",
+      "properties": {
+        "operation": {
+          "enum": [
+            "CREATE",
+            "PENDING",
+            "MODIFY",
+            "COMPLETED"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "enum": [
+                "ACCEPTED",
+                "REJECTED",
+                "CANCELLED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "COMPLETED: the request outcome. MODIFY: the step decision.",
+          "title": "Result"
+        },
+        "stepId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MODIFY only: restrict to one approval step.",
+          "title": "Stepid"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "Trigger",
+      "type": "object"
+    }
+  },
+  "description": "``source.config`` of the recipe. Other keys in the block are opaque.",
+  "properties": {
+    "schemaVersion": {
+      "default": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/Rule"
+      },
+      "title": "Rules",
+      "type": "array"
+    }
+  },
+  "title": "DataHub workflow-actions rules",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acryl.io/schemas/datahub-workflow-actions/v1.json"
+}

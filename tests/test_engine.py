@@ -1,0 +1,173 @@
+import concurrent.futures
+
+import pytest
+
+from datahub_workflow_actions.contract import RulesConfig
+from datahub_workflow_actions.engine import Engine, trigger_matches
+from datahub_workflow_actions.state import InMemoryStateStore
+from datahub_workflow_actions.steps import RunContext, StepParams, step
+from tests.conftest import DATASET, WF
+
+CALLS = []
+
+
+class RecordParams(StepParams):
+    value: str = "x"
+    fail_times: int = 0
+
+
+@step("_record", label="Record", description="test", group="Test", params=RecordParams, outputs={"echo": "value"})
+def _record(p: RecordParams, ctx: RunContext):
+    CALLS.append(p.value)
+    remaining = sum(1 for c in CALLS if c == p.value)
+    if remaining <= p.fail_times:
+        raise RuntimeError(f"boom {remaining}")
+    return {"echo": p.value}
+
+
+class SlowParams(StepParams):
+    seconds: float = 0.5
+
+
+@step("_slow", label="Slow", description="test", group="Test", params=SlowParams)
+def _slow(p: SlowParams, ctx: RunContext):
+    import time
+
+    time.sleep(p.seconds)
+    return {"done": True}
+
+
+def rule(**overrides):
+    base = {"id": "r1", "workflowUrn": WF, "on": {"operation": "COMPLETED", "result": "ACCEPTED"}, "steps": []}
+    base.update(overrides)
+    return base
+
+
+def cfg(*rules):
+    return RulesConfig(rules=list(rules))
+
+
+@pytest.fixture(autouse=True)
+def _reset_calls():
+    CALLS.clear()
+
+
+def test_trigger_matching(context):
+    assert trigger_matches(RulesConfig(rules=[rule()]).rules[0], context) is None
+    assert "result" in trigger_matches(RulesConfig(rules=[rule(on={"operation": "COMPLETED", "result": "REJECTED"})]).rules[0], context)
+    assert "operation" in trigger_matches(RulesConfig(rules=[rule(on={"operation": "CREATE"})]).rules[0], context)
+    assert "workflow" in trigger_matches(RulesConfig(rules=[rule(workflowUrn="urn:li:actionWorkflow:other")]).rules[0], context)
+
+
+def test_run_orders_steps_exposes_outputs_and_reports(context):
+    config = cfg(
+        rule(
+            steps=[
+                {"id": "a", "type": "_record", "params": {"value": "first"}},
+                {"id": "b", "type": "_record", "params": {"value": "after {{ steps.a.output.echo }}"}},
+            ]
+        )
+    )
+    runs = Engine(state=InMemoryStateStore()).run(config, context)
+    assert runs[0].fired and runs[0].status == "ok"
+    assert [s.status for s in runs[0].steps] == ["ok", "ok"]
+    assert CALLS == ["first", "after first"]
+    assert runs[0].steps[1].output == {"echo": "after first"}
+
+
+def test_rule_level_conditions_and_disabled_rules(context):
+    config = cfg(
+        rule(id="off", enabled=False, steps=[{"id": "a", "type": "_record"}]),
+        rule(id="nomatch", when={"operator": "AND", "filters": [{"field": "form.field_abc", "values": ["public"]}]}, steps=[{"id": "a", "type": "_record"}]),
+        rule(id="match", when={"operator": "AND", "filters": [{"field": "form.field_abc", "values": ["restricted"]}]}, steps=[{"id": "a", "type": "_record"}]),
+    )
+    runs = Engine().run(config, context)
+    assert [(r.ruleId, r.fired, r.reason) for r in runs] == [("off", False, "disabled"), ("nomatch", False, "conditions not met"), ("match", True, None)]
+    assert CALLS == ["x"]
+
+
+def test_step_conditions_disabled_steps_and_unknown_types(context):
+    config = cfg(
+        rule(
+            onError="continue",
+            steps=[
+                {"id": "skip", "type": "_record", "when": {"operator": "AND", "filters": [{"field": "entity.type", "values": ["chart"]}]}},
+                {"id": "off", "type": "_record", "enabled": False},
+                {"id": "unknown", "type": "nope"},
+                {"id": "run", "type": "_record", "params": {"value": "ran"}},
+            ],
+        )
+    )
+    run = Engine().run(config, context)[0]
+    assert [s.status for s in run.steps] == ["skipped", "skipped", "failed", "ok"]
+    assert run.status == "ok" and CALLS == ["ran"]
+
+
+def test_on_error_fail_stop_continue(context):
+    failing = {"id": "bad", "type": "_record", "params": {"value": "bad", "fail_times": 5}}
+    after = {"id": "after", "type": "_record", "params": {"value": "after"}}
+    fail_run = Engine().run(cfg(rule(steps=[failing, after])), context)[0]
+    assert fail_run.status == "failed" and [s.stepId for s in fail_run.steps] == ["bad"] and "boom" in fail_run.reason
+    CALLS.clear()
+    stop_run = Engine().run(cfg(rule(steps=[{**failing, "onError": "stop"}, after])), context)[0]
+    assert stop_run.status == "stopped" and len(stop_run.steps) == 1
+    CALLS.clear()
+    cont_run = Engine().run(cfg(rule(steps=[{**failing, "onError": "continue"}, after])), context)[0]
+    assert cont_run.status == "ok" and [s.status for s in cont_run.steps] == ["failed", "ok"]
+
+
+def test_retries_with_backoff(context):
+    sleeps = []
+    config = cfg(rule(steps=[{"id": "flaky", "type": "_record", "params": {"value": "flaky", "fail_times": 2}, "retry": {"attempts": 3, "backoff": "exponential", "delaySeconds": 1, "maxDelaySeconds": 10}}]))
+    run = Engine(sleep=sleeps.append).run(config, context)[0]
+    assert run.status == "ok" and run.steps[0].attempts == 3 and sleeps == [1, 2]
+    CALLS.clear()
+    config = cfg(rule(steps=[{"id": "flaky", "type": "_record", "params": {"value": "flaky2", "fail_times": 5}, "retry": {"attempts": 2, "backoff": "fixed", "delaySeconds": 0.5}}]))
+    run = Engine(sleep=sleeps.append).run(config, context)[0]
+    assert run.status == "failed" and run.steps[0].attempts == 2 and sleeps[-1] == 0.5
+
+
+def test_timeout(context):
+    config = cfg(rule(steps=[{"id": "slow", "type": "_slow", "params": {"seconds": 0.5}, "timeoutSeconds": 0.05}]))
+    run = Engine().run(config, context)[0]
+    assert run.steps[0].status == "timed-out" and "timed out" in run.reason
+
+
+def test_for_each_fans_out_with_item_and_index(context):
+    config = cfg(rule(steps=[{"id": "each", "type": "_record", "forEach": "{{ entity.owners }}", "params": {"value": "{{ index }}:{{ item | urn_name }}"}}]))
+    run = Engine().run(config, context)[0]
+    assert run.status == "ok" and run.steps[0].reason == "2 item(s)"
+    assert CALLS == ["0:owner1", "1:data-eng"]
+    assert [i.output for i in run.steps[0].items] == [{"echo": "0:owner1"}, {"echo": "1:data-eng"}]
+    # path form and empty list
+    config = cfg(rule(steps=[{"id": "each", "type": "_record", "forEach": "entity.tags", "params": {"value": "{{ item }}"}}]))
+    run = Engine().run(config, context)[0]
+    assert run.steps[0].reason == "1 item(s)"  # tags has one element in the fixture
+
+
+def test_idempotency_skips_repeats_and_honours_custom_key(context):
+    state = InMemoryStateStore()
+    config = cfg(rule(steps=[{"id": "once", "type": "_record", "params": {"value": "once"}}]))
+    first = Engine(state=state).run(config, context)[0]
+    second = Engine(state=state).run(config, context)[0]
+    assert first.steps[0].status == "ok" and second.steps[0].status == "skipped"
+    assert second.steps[0].reason.startswith("already ran") and second.steps[0].output == {"echo": "once"}
+    assert CALLS == ["once"]
+    custom = cfg(rule(steps=[{"id": "k", "type": "_record", "idempotencyKey": "{{ entity.urn }}|grant", "params": {"value": "k"}}]))
+    run = Engine(state=state).run(custom, context)[0]
+    assert run.steps[0].idempotencyKey == f"{DATASET}|grant"
+
+
+def test_dry_run_renders_but_does_not_execute_or_record(context):
+    state = InMemoryStateStore()
+    config = cfg(rule(steps=[{"id": "tag", "type": "add_tag", "params": {"entity": "{{ entity.urn }}", "tag": "urn:li:tag:x"}}]))
+    run = Engine(state=state, dry_run=True).run(config, context)[0]
+    assert run.status == "dry-run" and run.steps[0].status == "dry-run"
+    assert run.steps[0].output["mutation"] == "batchAddTags" and run.steps[0].output["variables"]["input"]["resources"] == [{"resourceUrn": DATASET}]
+    assert not state.seen(run.steps[0].idempotencyKey)
+
+
+def test_invalid_rendered_params_fail_the_step(context):
+    config = cfg(rule(steps=[{"id": "bad", "type": "add_tag", "params": {"entity": "{{ entity.urn }}", "tag": "{{ form.nope }}"}}]))
+    run = Engine().run(config, context)[0]
+    assert run.steps[0].status == "failed" and "invalid params" in run.steps[0].error

@@ -1,0 +1,866 @@
+[
+  {
+    "type": "add_owner",
+    "label": "Add owner",
+    "description": "Add a user or group as an owner.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "owner": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "User or group URN(s). Usually {{ requester.urn }}.",
+        "title": "Owner"
+      },
+      "ownershipType": {
+        "default": "TECHNICAL_OWNER",
+        "description": "TECHNICAL_OWNER, BUSINESS_OWNER, DATA_STEWARD, NONE, or a custom ownership-type URN.",
+        "title": "Ownershiptype",
+        "type": "string"
+      }
+    },
+    "required": [
+      "entity",
+      "owner"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "add_tag",
+    "label": "Add tag",
+    "description": "Attach a tag to an entity.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "tag": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Tag URN(s).",
+        "title": "Tag"
+      }
+    },
+    "required": [
+      "entity",
+      "tag"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "add_term",
+    "label": "Add glossary term",
+    "description": "Attach a glossary term to an entity.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "term": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Glossary term URN(s).",
+        "title": "Term"
+      }
+    },
+    "required": [
+      "entity",
+      "term"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "add_to_data_product",
+    "label": "Add to data product",
+    "description": "Add an entity to a data product.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "dataProduct": {
+        "description": "Data product URN.",
+        "title": "Dataproduct",
+        "type": "string"
+      }
+    },
+    "required": [
+      "entity",
+      "dataProduct"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "clear_domain",
+    "label": "Clear domain",
+    "description": "Remove an entity from its domain.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      }
+    },
+    "required": [
+      "entity"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "deprecate",
+    "label": "Deprecate",
+    "description": "Mark an entity as deprecated.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "note": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Shown on the deprecation banner.",
+        "title": "Note"
+      },
+      "replacement": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Replacement entity URN.",
+        "title": "Replacement"
+      },
+      "decommissionTime": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Epoch millis.",
+        "title": "Decommissiontime"
+      }
+    },
+    "required": [
+      "entity"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "email",
+    "label": "Send email",
+    "description": "Send an email over SMTP (SMTP_HOST/PORT/USER/PASSWORD/FROM).",
+    "group": "Integration",
+    "params": {
+      "to": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Recipient(s), comma-separated or list.",
+        "title": "To"
+      },
+      "subject": {
+        "title": "Subject",
+        "type": "string"
+      },
+      "body": {
+        "title": "Body",
+        "type": "string"
+      },
+      "sender": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Defaults to $SMTP_FROM.",
+        "title": "Sender"
+      },
+      "html": {
+        "default": false,
+        "title": "Html",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "to",
+      "subject",
+      "body"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "jira_issue",
+    "label": "Create Jira issue",
+    "description": "Create an issue via the Jira Cloud REST API.",
+    "group": "Integration",
+    "params": {
+      "baseUrl": {
+        "description": "e.g. https://acme.atlassian.net",
+        "title": "Baseurl",
+        "type": "string"
+      },
+      "project": {
+        "description": "Project key.",
+        "title": "Project",
+        "type": "string"
+      },
+      "summary": {
+        "title": "Summary",
+        "type": "string"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "issueType": {
+        "default": "Task",
+        "title": "Issuetype",
+        "type": "string"
+      },
+      "email": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Defaults to $JIRA_EMAIL.",
+        "title": "Email"
+      },
+      "apiToken": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Defaults to $JIRA_API_TOKEN.",
+        "title": "Apitoken"
+      }
+    },
+    "required": [
+      "baseUrl",
+      "project",
+      "summary"
+    ],
+    "outputs": {
+      "key": "Issue key",
+      "id": "Issue id",
+      "url": "Browse URL"
+    }
+  },
+  {
+    "type": "remove_owner",
+    "label": "Remove owner",
+    "description": "Remove a user or group from the owners.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "owner": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "title": "Owner"
+      },
+      "ownershipType": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Custom ownership-type URN to remove (optional).",
+        "title": "Ownershiptype"
+      }
+    },
+    "required": [
+      "entity",
+      "owner"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "remove_tag",
+    "label": "Remove tag",
+    "description": "Remove a tag from an entity.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "tag": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Tag URN(s).",
+        "title": "Tag"
+      }
+    },
+    "required": [
+      "entity",
+      "tag"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "remove_term",
+    "label": "Remove glossary term",
+    "description": "Remove a glossary term from an entity.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "term": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Glossary term URN(s).",
+        "title": "Term"
+      }
+    },
+    "required": [
+      "entity",
+      "term"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "set_domain",
+    "label": "Set domain",
+    "description": "Move an entity into a domain.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "domain": {
+        "description": "Domain URN.",
+        "title": "Domain",
+        "type": "string"
+      }
+    },
+    "required": [
+      "entity",
+      "domain"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "set_structured_property",
+    "label": "Set structured property",
+    "description": "Set a structured property value on an entity.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "property": {
+        "description": "Structured property URN.",
+        "title": "Property",
+        "type": "string"
+      },
+      "values": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Value(s); numbers are sent as numbers.",
+        "title": "Values"
+      }
+    },
+    "required": [
+      "entity",
+      "property",
+      "values"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "slack",
+    "label": "Post to Slack",
+    "description": "Send a message to a channel.",
+    "group": "Integration",
+    "params": {
+      "channel": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Channel id or #name (bot token mode).",
+        "title": "Channel"
+      },
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "webhookUrl": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Incoming-webhook URL; when set, channel/token are not used.",
+        "title": "Webhookurl"
+      },
+      "token": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Bot token; defaults to $SLACK_BOT_TOKEN.",
+        "title": "Token"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "outputs": {
+      "ts": "Message timestamp",
+      "channel": "Channel id"
+    }
+  },
+  {
+    "type": "teams",
+    "label": "Post to Microsoft Teams",
+    "description": "Send a message to a Teams channel via incoming webhook.",
+    "group": "Integration",
+    "params": {
+      "webhookUrl": {
+        "title": "Webhookurl",
+        "type": "string"
+      },
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "title": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Title"
+      }
+    },
+    "required": [
+      "webhookUrl",
+      "text"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "undeprecate",
+    "label": "Remove deprecation",
+    "description": "Clear the deprecation flag.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      }
+    },
+    "required": [
+      "entity"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "update_description",
+    "label": "Update description",
+    "description": "Replace the entity description.",
+    "group": "Metadata",
+    "params": {
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
+        "title": "Entity"
+      },
+      "description": {
+        "title": "Description",
+        "type": "string"
+      }
+    },
+    "required": [
+      "entity",
+      "description"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "wait",
+    "label": "Wait",
+    "description": "Pause before the next step.",
+    "group": "Integration",
+    "params": {
+      "seconds": {
+        "exclusiveMinimum": 0.0,
+        "maximum": 3600.0,
+        "title": "Seconds",
+        "type": "number"
+      }
+    },
+    "required": [
+      "seconds"
+    ],
+    "outputs": {}
+  },
+  {
+    "type": "webhook",
+    "label": "Call webhook",
+    "description": "HTTP request to an external system.",
+    "group": "Integration",
+    "params": {
+      "url": {
+        "title": "Url",
+        "type": "string"
+      },
+      "method": {
+        "default": "POST",
+        "description": "POST, PUT, PATCH, GET, DELETE",
+        "title": "Method",
+        "type": "string"
+      },
+      "headers": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          },
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "JSON object, e.g. {\"Authorization\": \"Bearer \u2026\"}",
+        "title": "Headers"
+      },
+      "body": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          },
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "JSON (templated) or a raw string.",
+        "title": "Body"
+      },
+      "expectStatus": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Acceptable status codes (default: any 2xx).",
+        "title": "Expectstatus"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "outputs": {
+      "status": "HTTP status code",
+      "body": "Parsed JSON body (or text)",
+      "headers": "Response headers"
+    }
+  }
+]

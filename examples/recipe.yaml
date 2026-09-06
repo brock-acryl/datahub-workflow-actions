@@ -1,0 +1,45 @@
+# Ingestion recipe the MFE writes into the "Workflow Actions" source. Run it on
+# a local or remote executor with the package installed via extra pip
+# (acryl-datahub-workflow-actions). Everything outside source.config.rules
+# is yours; the MFE round-trips it untouched.
+source:
+  type: datahub-workflow-actions
+  config:
+    schemaVersion: 1
+    kafka:                          # datahub-actions kafka source config; omit to use executor defaults
+      connection:
+        bootstrap: ${KAFKA_BOOTSTRAP_SERVER}
+        schema_registry_url: ${SCHEMA_REGISTRY_URL}
+    statePath: /var/lib/datahub/workflow-actions-state.db
+    rules:
+      - id: on-approval
+        name: On approval
+        workflowUrn: urn:li:actionWorkflow:a637c620-2dfc-4201-b88c-d20a0c618183
+        on: { operation: COMPLETED, result: ACCEPTED }
+        when:
+          operator: AND
+          filters:
+            - { field: form.field_f8605151be2c48b0, condition: EQUAL, values: ["restricted"] }
+        steps:
+          - id: tag
+            type: add_tag
+            params: { entity: "{{ entity.urn }}", tag: "urn:li:tag:access-granted" }
+          - id: ticket
+            type: webhook
+            retry: { attempts: 3, backoff: exponential, delaySeconds: 2 }
+            timeoutSeconds: 20
+            params:
+              url: https://acme.atlassian.net/rest/api/2/issue
+              headers: '{"Authorization": "Basic {{ env_jira }}"}'
+              body: '{"fields": {"project": {"key": "DATA"}, "summary": "Grant {{ requester.email }} access to {{ entity.name }}", "issuetype": {"name": "Task"}}}'
+          - id: notify-owners
+            type: slack
+            forEach: "{{ entity.owners }}"
+            onError: continue
+            params:
+              channel: "#data-access"
+              text: "{{ requester.name }} was approved for {{ entity.name }} (owner {{ item | urn_name }}); ticket {{ steps.ticket.output.body.key }}"
+sink:
+  type: datahub-rest
+  config:
+    server: ${DATAHUB_GMS_URL}
