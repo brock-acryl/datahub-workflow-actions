@@ -67,7 +67,9 @@ class StepDefinition:
     bulk_param: Optional[str] = None
 
     def describe(self) -> dict:
-        schema = self.params.model_json_schema()
+        from datahub_workflow_actions.contract import strip_auto_titles
+
+        schema = strip_auto_titles(self.params.model_json_schema())
         return {
             "type": self.type,
             "label": self.label,

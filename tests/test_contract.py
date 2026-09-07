@@ -79,3 +79,25 @@ def test_json_schema_is_published_with_id_and_covers_rules():
     assert schema["$id"].endswith("/v1.json")
     assert "Rule" in schema["$defs"] and "RetryPolicy" in schema["$defs"] and "FilterGroup" in schema["$defs"]
     assert "forEach" in schema["$defs"]["Step"]["properties"]
+
+
+def test_published_schema_and_catalog_carry_no_pydantic_titles():
+    """Auto titles differ across pydantic versions; the contract must not depend on them."""
+    import json
+
+    from datahub_workflow_actions.contract import rules_json_schema
+    from datahub_workflow_actions.steps import catalog
+
+    def titles(node, path=""):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "title" and path != "":
+                    yield path
+                yield from titles(v, f"{path}/{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                yield from titles(v, f"{path}[{i}]")
+
+    assert list(titles(rules_json_schema())) == []  # only the root title survives (path == "")
+    assert rules_json_schema()["title"] == "DataHub workflow-actions rules"
+    assert list(titles(json.loads(json.dumps(catalog())))) == []

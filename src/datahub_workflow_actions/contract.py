@@ -176,8 +176,19 @@ def load_rules(obj: Any) -> RulesConfig:
     raise ValueError("no rules found: expected source.config.rules, {rules: [...]}, or a list")
 
 
+def strip_auto_titles(node: Any) -> Any:
+    """Drop pydantic's auto-generated ``title`` keys: they vary between pydantic
+    versions ("OnError" vs "Onerror") and would make the published contract drift
+    without any real change. ``$defs`` keys (the model names) are kept."""
+    if isinstance(node, dict):
+        return {k: strip_auto_titles(v) for k, v in node.items() if k != "title"}
+    if isinstance(node, list):
+        return [strip_auto_titles(v) for v in node]
+    return node
+
+
 def rules_json_schema() -> Dict[str, Any]:
-    schema = RulesConfig.model_json_schema()
+    schema = strip_auto_titles(RulesConfig.model_json_schema())
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = f"https://acryl.io/schemas/datahub-workflow-actions/v{SCHEMA_VERSION}.json"
     schema["title"] = "DataHub workflow-actions rules"

@@ -11,7 +11,6 @@
             "auto",
             "items"
           ],
-          "title": "Mode",
           "type": "string"
         },
         "size": {
@@ -19,11 +18,9 @@
           "description": "Max items per merged call.",
           "maximum": 1000,
           "minimum": 1,
-          "title": "Size",
           "type": "integer"
         }
       },
-      "title": "BatchPolicy",
       "type": "object"
     },
     "Filter": {
@@ -33,7 +30,6 @@
         "field": {
           "description": "Dotted path, e.g. form.field_abc, entity.type, requester.groups",
           "minLength": 1,
-          "title": "Field",
           "type": "string"
         },
         "condition": {
@@ -49,31 +45,26 @@
             "LESS_THAN",
             "MATCHES"
           ],
-          "title": "Condition",
           "type": "string"
         },
         "values": {
           "items": {
             "type": "string"
           },
-          "title": "Values",
           "type": "array"
         },
         "negated": {
           "default": false,
-          "title": "Negated",
           "type": "boolean"
         },
         "caseInsensitive": {
           "default": false,
-          "title": "Caseinsensitive",
           "type": "boolean"
         }
       },
       "required": [
         "field"
       ],
-      "title": "Filter",
       "type": "object"
     },
     "FilterGroup": {
@@ -85,7 +76,6 @@
             "AND",
             "OR"
           ],
-          "title": "Operator",
           "type": "string"
         },
         "filters": {
@@ -99,14 +89,12 @@
               }
             ]
           },
-          "title": "Filters",
           "type": "array"
         }
       },
       "required": [
         "operator"
       ],
-      "title": "FilterGroup",
       "type": "object"
     },
     "RetryPolicy": {
@@ -117,7 +105,6 @@
           "description": "Total attempts including the first.",
           "maximum": 20,
           "minimum": 1,
-          "title": "Attempts",
           "type": "integer"
         },
         "backoff": {
@@ -126,23 +113,19 @@
             "fixed",
             "exponential"
           ],
-          "title": "Backoff",
           "type": "string"
         },
         "delaySeconds": {
           "default": 1.0,
           "minimum": 0.0,
-          "title": "Delayseconds",
           "type": "number"
         },
         "maxDelaySeconds": {
           "default": 60.0,
           "minimum": 0.0,
-          "title": "Maxdelayseconds",
           "type": "number"
         }
       },
-      "title": "RetryPolicy",
       "type": "object"
     },
     "Rule": {
@@ -150,7 +133,6 @@
       "properties": {
         "id": {
           "minLength": 1,
-          "title": "Id",
           "type": "string"
         },
         "name": {
@@ -162,8 +144,7 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Name"
+          "default": null
         },
         "description": {
           "anyOf": [
@@ -174,17 +155,14 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Description"
+          "default": null
         },
         "workflowUrn": {
           "minLength": 1,
-          "title": "Workflowurn",
           "type": "string"
         },
         "enabled": {
           "default": true,
-          "title": "Enabled",
           "type": "boolean"
         },
         "on": {
@@ -205,7 +183,6 @@
           "items": {
             "$ref": "#/$defs/Step"
           },
-          "title": "Steps",
           "type": "array"
         },
         "onError": {
@@ -216,7 +193,6 @@
             "continue",
             "stop"
           ],
-          "title": "Onerror",
           "type": "string"
         }
       },
@@ -225,7 +201,6 @@
         "workflowUrn",
         "on"
       ],
-      "title": "Rule",
       "type": "object"
     },
     "Step": {
@@ -233,18 +208,15 @@
       "properties": {
         "id": {
           "minLength": 1,
-          "title": "Id",
           "type": "string"
         },
         "type": {
           "description": "A step type from the catalog (add_tag, webhook, \u2026).",
           "minLength": 1,
-          "title": "Type",
           "type": "string"
         },
         "params": {
           "description": "Templated values ({{ path }}).",
-          "title": "Params",
           "type": "object"
         },
         "description": {
@@ -256,12 +228,10 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Description"
+          "default": null
         },
         "enabled": {
           "default": true,
-          "title": "Enabled",
           "type": "boolean"
         },
         "when": {
@@ -290,8 +260,7 @@
             }
           ],
           "default": null,
-          "description": "Overrides the rule default (fail).",
-          "title": "Onerror"
+          "description": "Overrides the rule default (fail)."
         },
         "retry": {
           "anyOf": [
@@ -314,8 +283,7 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Timeoutseconds"
+          "default": null
         },
         "forEach": {
           "anyOf": [
@@ -327,8 +295,7 @@
             }
           ],
           "default": null,
-          "description": "Path or template yielding a list; the step runs once per element as `item`.",
-          "title": "Foreach"
+          "description": "Path or template yielding a list; the step runs once per element as `item`."
         },
         "itemWhen": {
           "anyOf": [
@@ -364,15 +331,13 @@
             }
           ],
           "default": null,
-          "description": "Template; defaults to event id + rule id + step id (+ item index).",
-          "title": "Idempotencykey"
+          "description": "Template; defaults to event id + rule id + step id (+ item index)."
         }
       },
       "required": [
         "id",
         "type"
       ],
-      "title": "Step",
       "type": "object"
     },
     "Trigger": {
@@ -386,7 +351,6 @@
             "MODIFY",
             "COMPLETED"
           ],
-          "title": "Operation",
           "type": "string"
         },
         "result": {
@@ -404,8 +368,7 @@
             }
           ],
           "default": null,
-          "description": "COMPLETED: the request outcome. MODIFY: the step decision.",
-          "title": "Result"
+          "description": "COMPLETED: the request outcome. MODIFY: the step decision."
         },
         "stepId": {
           "anyOf": [
@@ -417,14 +380,12 @@
             }
           ],
           "default": null,
-          "description": "MODIFY only: restrict to one approval step.",
-          "title": "Stepid"
+          "description": "MODIFY only: restrict to one approval step."
         }
       },
       "required": [
         "operation"
       ],
-      "title": "Trigger",
       "type": "object"
     }
   },
@@ -432,19 +393,17 @@
   "properties": {
     "schemaVersion": {
       "default": 1,
-      "title": "Schemaversion",
       "type": "integer"
     },
     "rules": {
       "items": {
         "$ref": "#/$defs/Rule"
       },
-      "title": "Rules",
       "type": "array"
     }
   },
-  "title": "DataHub workflow-actions rules",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://acryl.io/schemas/datahub-workflow-actions/v1.json"
+  "$id": "https://acryl.io/schemas/datahub-workflow-actions/v1.json",
+  "title": "DataHub workflow-actions rules"
 }

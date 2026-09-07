@@ -17,8 +17,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "owner": {
         "anyOf": [
@@ -32,13 +31,11 @@
             "type": "array"
           }
         ],
-        "description": "User or group URN(s). Usually {{ requester.urn }}.",
-        "title": "Owner"
+        "description": "User or group URN(s). Usually {{ requester.urn }}."
       },
       "ownershipType": {
         "default": "TECHNICAL_OWNER",
         "description": "TECHNICAL_OWNER, BUSINESS_OWNER, DATA_STEWARD, NONE, or a custom ownership-type URN.",
-        "title": "Ownershiptype",
         "type": "string"
       }
     },
@@ -67,8 +64,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "tag": {
         "anyOf": [
@@ -82,8 +78,7 @@
             "type": "array"
           }
         ],
-        "description": "Tag URN(s).",
-        "title": "Tag"
+        "description": "Tag URN(s)."
       }
     },
     "required": [
@@ -111,8 +106,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "term": {
         "anyOf": [
@@ -126,8 +120,7 @@
             "type": "array"
           }
         ],
-        "description": "Glossary term URN(s).",
-        "title": "Term"
+        "description": "Glossary term URN(s)."
       }
     },
     "required": [
@@ -155,12 +148,10 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "dataProduct": {
         "description": "Data product URN.",
-        "title": "Dataproduct",
         "type": "string"
       }
     },
@@ -189,8 +180,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       }
     },
     "required": [
@@ -210,12 +200,10 @@
         "description": "Stop after this many entities.",
         "maximum": 10000,
         "minimum": 1,
-        "title": "Maxresults",
         "type": "integer"
       },
       "dataProduct": {
         "description": "Data product URN.",
-        "title": "Dataproduct",
         "type": "string"
       },
       "types": {
@@ -234,8 +222,7 @@
           }
         ],
         "default": null,
-        "description": "Restrict to these entity types (optional).",
-        "title": "Types"
+        "description": "Restrict to these entity types (optional)."
       }
     },
     "required": [
@@ -266,8 +253,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "note": {
         "anyOf": [
@@ -279,8 +265,7 @@
           }
         ],
         "default": null,
-        "description": "Shown on the deprecation banner.",
-        "title": "Note"
+        "description": "Shown on the deprecation banner."
       },
       "replacement": {
         "anyOf": [
@@ -292,8 +277,7 @@
           }
         ],
         "default": null,
-        "description": "Replacement entity URN.",
-        "title": "Replacement"
+        "description": "Replacement entity URN."
       },
       "decommissionTime": {
         "anyOf": [
@@ -305,8 +289,7 @@
           }
         ],
         "default": null,
-        "description": "Epoch millis.",
-        "title": "Decommissiontime"
+        "description": "Epoch millis."
       }
     },
     "required": [
@@ -333,15 +316,12 @@
             "type": "array"
           }
         ],
-        "description": "Recipient(s), comma-separated or list.",
-        "title": "To"
+        "description": "Recipient(s), comma-separated or list."
       },
       "subject": {
-        "title": "Subject",
         "type": "string"
       },
       "body": {
-        "title": "Body",
         "type": "string"
       },
       "sender": {
@@ -354,12 +334,10 @@
           }
         ],
         "default": null,
-        "description": "Defaults to $SMTP_FROM.",
-        "title": "Sender"
+        "description": "Defaults to $SMTP_FROM."
       },
       "html": {
         "default": false,
-        "title": "Html",
         "type": "boolean"
       }
     },
@@ -379,7 +357,6 @@
     "params": {
       "query": {
         "description": "A GraphQL query (reads only \u2014 use the metadata steps to write).",
-        "title": "Query",
         "type": "string"
       },
       "variables": {
@@ -390,8 +367,7 @@
           }
         ],
         "default": null,
-        "description": "Variables as JSON, e.g. {\"urn\": \"{{ entity.urn }}\"}.",
-        "title": "Variables"
+        "description": "Variables as JSON, e.g. {\"urn\": \"{{ entity.urn }}\"}."
       },
       "path": {
         "anyOf": [
@@ -403,8 +379,7 @@
           }
         ],
         "default": null,
-        "description": "Dot path into the response to expose as `value`, e.g. dataset.schemaMetadata.fields.",
-        "title": "Path"
+        "description": "Dot path into the response to expose as `value`, e.g. dataset.schemaMetadata.fields."
       }
     },
     "required": [
@@ -424,16 +399,13 @@
     "params": {
       "baseUrl": {
         "description": "e.g. https://acme.atlassian.net",
-        "title": "Baseurl",
         "type": "string"
       },
       "project": {
         "description": "Project key.",
-        "title": "Project",
         "type": "string"
       },
       "summary": {
-        "title": "Summary",
         "type": "string"
       },
       "description": {
@@ -445,12 +417,10 @@
             "type": "null"
           }
         ],
-        "default": null,
-        "title": "Description"
+        "default": null
       },
       "issueType": {
         "default": "Task",
-        "title": "Issuetype",
         "type": "string"
       },
       "email": {
@@ -463,8 +433,7 @@
           }
         ],
         "default": null,
-        "description": "Defaults to $JIRA_EMAIL.",
-        "title": "Email"
+        "description": "Defaults to $JIRA_EMAIL."
       },
       "apiToken": {
         "anyOf": [
@@ -476,8 +445,7 @@
           }
         ],
         "default": null,
-        "description": "Defaults to $JIRA_API_TOKEN.",
-        "title": "Apitoken"
+        "description": "Defaults to $JIRA_API_TOKEN."
       }
     },
     "required": [
@@ -503,18 +471,15 @@
         "description": "Stop after this many entities.",
         "maximum": 10000,
         "minimum": 1,
-        "title": "Maxresults",
         "type": "integer"
       },
       "entity": {
         "description": "Starting entity URN. Usually {{ entity.urn }}.",
-        "title": "Entity",
         "type": "string"
       },
       "direction": {
         "default": "DOWNSTREAM",
         "description": "UPSTREAM or DOWNSTREAM.",
-        "title": "Direction",
         "type": "string"
       },
       "hops": {
@@ -522,7 +487,6 @@
         "description": "How many hops to follow.",
         "maximum": 10,
         "minimum": 1,
-        "title": "Hops",
         "type": "integer"
       },
       "types": {
@@ -541,8 +505,7 @@
           }
         ],
         "default": null,
-        "description": "Restrict to these entity types (optional).",
-        "title": "Types"
+        "description": "Restrict to these entity types (optional)."
       }
     },
     "required": [
@@ -574,8 +537,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "owner": {
         "anyOf": [
@@ -588,8 +550,7 @@
             },
             "type": "array"
           }
-        ],
-        "title": "Owner"
+        ]
       },
       "ownershipType": {
         "anyOf": [
@@ -601,8 +562,7 @@
           }
         ],
         "default": null,
-        "description": "Custom ownership-type URN to remove (optional).",
-        "title": "Ownershiptype"
+        "description": "Custom ownership-type URN to remove (optional)."
       }
     },
     "required": [
@@ -630,8 +590,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "tag": {
         "anyOf": [
@@ -645,8 +604,7 @@
             "type": "array"
           }
         ],
-        "description": "Tag URN(s).",
-        "title": "Tag"
+        "description": "Tag URN(s)."
       }
     },
     "required": [
@@ -674,8 +632,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "term": {
         "anyOf": [
@@ -689,8 +646,7 @@
             "type": "array"
           }
         ],
-        "description": "Glossary term URN(s).",
-        "title": "Term"
+        "description": "Glossary term URN(s)."
       }
     },
     "required": [
@@ -711,7 +667,6 @@
         "description": "Stop after this many entities.",
         "maximum": 10000,
         "minimum": 1,
-        "title": "Maxresults",
         "type": "integer"
       },
       "types": {
@@ -730,13 +685,11 @@
           }
         ],
         "default": null,
-        "description": "Entity types to include, e.g. DATASET, DASHBOARD. Empty = all.",
-        "title": "Types"
+        "description": "Entity types to include, e.g. DATASET, DASHBOARD. Empty = all."
       },
       "query": {
         "default": "*",
         "description": "Search text; * for everything.",
-        "title": "Query",
         "type": "string"
       },
       "domain": {
@@ -755,8 +708,7 @@
           }
         ],
         "default": null,
-        "description": "Domain URN(s) the entities must belong to.",
-        "title": "Domain"
+        "description": "Domain URN(s) the entities must belong to."
       },
       "tag": {
         "anyOf": [
@@ -774,8 +726,7 @@
           }
         ],
         "default": null,
-        "description": "Tag URN(s) the entities must carry.",
-        "title": "Tag"
+        "description": "Tag URN(s) the entities must carry."
       },
       "term": {
         "anyOf": [
@@ -793,8 +744,7 @@
           }
         ],
         "default": null,
-        "description": "Glossary term URN(s) the entities must carry.",
-        "title": "Term"
+        "description": "Glossary term URN(s) the entities must carry."
       },
       "owner": {
         "anyOf": [
@@ -812,8 +762,7 @@
           }
         ],
         "default": null,
-        "description": "Owner URN(s).",
-        "title": "Owner"
+        "description": "Owner URN(s)."
       },
       "platform": {
         "anyOf": [
@@ -831,8 +780,7 @@
           }
         ],
         "default": null,
-        "description": "Data platform URN(s), e.g. urn:li:dataPlatform:snowflake.",
-        "title": "Platform"
+        "description": "Data platform URN(s), e.g. urn:li:dataPlatform:snowflake."
       },
       "container": {
         "anyOf": [
@@ -850,8 +798,7 @@
           }
         ],
         "default": null,
-        "description": "Container URN(s).",
-        "title": "Container"
+        "description": "Container URN(s)."
       },
       "filters": {
         "anyOf": [
@@ -861,8 +808,7 @@
           }
         ],
         "default": null,
-        "description": "Extra filters as JSON: [{\"field\": \"origin\", \"values\": [\"PROD\"]}] or a full orFilters list.",
-        "title": "Filters"
+        "description": "Extra filters as JSON: [{\"field\": \"origin\", \"values\": [\"PROD\"]}] or a full orFilters list."
       }
     },
     "required": [],
@@ -891,12 +837,10 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "domain": {
         "description": "Domain URN.",
-        "title": "Domain",
         "type": "string"
       }
     },
@@ -925,12 +869,10 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "property": {
         "description": "Structured property URN.",
-        "title": "Property",
         "type": "string"
       },
       "values": {
@@ -945,8 +887,7 @@
             "type": "array"
           }
         ],
-        "description": "Value(s); numbers are sent as numbers.",
-        "title": "Values"
+        "description": "Value(s); numbers are sent as numbers."
       }
     },
     "required": [
@@ -973,11 +914,9 @@
           }
         ],
         "default": null,
-        "description": "Channel id or #name (bot token mode).",
-        "title": "Channel"
+        "description": "Channel id or #name (bot token mode)."
       },
       "text": {
-        "title": "Text",
         "type": "string"
       },
       "webhookUrl": {
@@ -990,8 +929,7 @@
           }
         ],
         "default": null,
-        "description": "Incoming-webhook URL; when set, channel/token are not used.",
-        "title": "Webhookurl"
+        "description": "Incoming-webhook URL; when set, channel/token are not used."
       },
       "token": {
         "anyOf": [
@@ -1003,8 +941,7 @@
           }
         ],
         "default": null,
-        "description": "Bot token; defaults to $SLACK_BOT_TOKEN.",
-        "title": "Token"
+        "description": "Bot token; defaults to $SLACK_BOT_TOKEN."
       }
     },
     "required": [
@@ -1024,7 +961,6 @@
     "params": {
       "connection": {
         "description": "Name of a connection declared under connections: a SQLAlchemy URL, a reused ingestion source, or fromEntity.",
-        "title": "Connection",
         "type": "string"
       },
       "statements": {
@@ -1039,8 +975,7 @@
             "type": "array"
           }
         ],
-        "description": "One statement, or a list run in order. Wrap identifiers with sql_table / sql_ident.",
-        "title": "Statements"
+        "description": "One statement, or a list run in order. Wrap identifiers with sql_table / sql_ident."
       },
       "parameters": {
         "anyOf": [
@@ -1052,13 +987,11 @@
           }
         ],
         "default": null,
-        "description": "Bound parameters (:name) for values that can be bound.",
-        "title": "Parameters"
+        "description": "Bound parameters (:name) for values that can be bound."
       },
       "transaction": {
         "default": true,
         "description": "Run all statements in one transaction.",
-        "title": "Transaction",
         "type": "boolean"
       },
       "maxRows": {
@@ -1066,13 +999,11 @@
         "description": "Rows kept in the output for SELECT-like statements.",
         "maximum": 10000,
         "minimum": 0,
-        "title": "Maxrows",
         "type": "integer"
       },
       "unsafeRawTemplates": {
         "default": false,
         "description": "Allow {{ }} expressions without a sql_* filter (not recommended).",
-        "title": "Unsaferawtemplates",
         "type": "boolean"
       }
     },
@@ -1094,24 +1025,10 @@
     "group": "Integration",
     "params": {
       "webhookUrl": {
-        "title": "Webhookurl",
         "type": "string"
       },
       "text": {
-        "title": "Text",
         "type": "string"
-      },
-      "title": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "default": null,
-        "title": "Title"
       }
     },
     "required": [
@@ -1139,8 +1056,7 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       }
     },
     "required": [
@@ -1167,11 +1083,9 @@
             "type": "array"
           }
         ],
-        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}.",
-        "title": "Entity"
+        "description": "Entity URN (or a list / comma-separated list). Usually {{ entity.urn }}."
       },
       "description": {
-        "title": "Description",
         "type": "string"
       }
     },
@@ -1191,7 +1105,6 @@
       "seconds": {
         "exclusiveMinimum": 0.0,
         "maximum": 3600.0,
-        "title": "Seconds",
         "type": "number"
       }
     },
@@ -1208,13 +1121,11 @@
     "group": "Integration",
     "params": {
       "url": {
-        "title": "Url",
         "type": "string"
       },
       "method": {
         "default": "POST",
         "description": "POST, PUT, PATCH, GET, DELETE",
-        "title": "Method",
         "type": "string"
       },
       "headers": {
@@ -1234,8 +1145,7 @@
           }
         ],
         "default": null,
-        "description": "JSON object, e.g. {\"Authorization\": \"Bearer \u2026\"}",
-        "title": "Headers"
+        "description": "JSON object, e.g. {\"Authorization\": \"Bearer \u2026\"}"
       },
       "body": {
         "anyOf": [
@@ -1254,8 +1164,7 @@
           }
         ],
         "default": null,
-        "description": "JSON (templated) or a raw string.",
-        "title": "Body"
+        "description": "JSON (templated) or a raw string."
       },
       "expectStatus": {
         "anyOf": [
@@ -1270,8 +1179,7 @@
           }
         ],
         "default": null,
-        "description": "Acceptable status codes (default: any 2xx).",
-        "title": "Expectstatus"
+        "description": "Acceptable status codes (default: any 2xx)."
       }
     },
     "required": [
