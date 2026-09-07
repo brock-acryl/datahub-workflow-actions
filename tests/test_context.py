@@ -50,3 +50,27 @@ def test_event_filter():
     proposal = completed_event()
     proposal["parameters"]["actionRequestType"] = "TAG_ASSOCIATION"
     assert not is_workflow_lifecycle_event(proposal)
+
+
+def test_graph_resolver_uses_the_action_request_root_query():
+    """GMS exposes `actionRequest(urn)` — ActionRequest is not an Entity, so an
+    `entity { ... on ActionRequest }` spread is rejected by the schema."""
+    from datahub_workflow_actions.context import ACTION_REQUEST_QUERY, GraphResolver
+
+    class Graph:
+        def __init__(self):
+            self.calls = []
+
+        def execute_graphql(self, query, variables=None, **_):
+            self.calls.append((query, variables))
+            if "actionRequest(urn: $urn)" in query:
+                return {"actionRequest": {"urn": variables["urn"], "status": "COMPLETED", "params": {"workflowFormRequest": {"workflowUrn": "urn:li:actionWorkflow:w"}}}}
+            return {}
+
+    assert "... on ActionRequest" not in ACTION_REQUEST_QUERY
+    graph = Graph()
+    resolver = GraphResolver(graph)
+    request = resolver.get_action_request("urn:li:actionRequest:r1")
+    assert request["status"] == "COMPLETED" and request["params"]["workflowFormRequest"]["workflowUrn"] == "urn:li:actionWorkflow:w"
+    resolver.get_action_request("urn:li:actionRequest:r1")
+    assert len(graph.calls) == 1  # cached per instance

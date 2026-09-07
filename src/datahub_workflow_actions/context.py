@@ -50,21 +50,20 @@ class StaticResolver:
     get_action_request = get_workflow = get_entity = get_user = _get
 
 
+# ActionRequest is not an Entity in the GraphQL schema — it has its own root query.
 ACTION_REQUEST_QUERY = """
 query workflowActionsRequest($urn: String!) {
-  entity(urn: $urn) {
+  actionRequest(urn: $urn) {
     urn
-    ... on ActionRequest {
-      description status result resultNote
-      entity { urn type }
-      created { time actor { urn username } }
-      params { workflowFormRequest {
-        workflowUrn
-        workflow { urn name steps { id description } trigger { form { fields { id name } } } }
-        fields { id values { ... on StringValue { stringValue } ... on NumberValue { numberValue } } }
-        decisions { stepId result note timestamp decidedBy { urn username } }
-      } }
-    }
+    description status result resultNote
+    entity { urn type }
+    created { time actor { urn username } }
+    params { workflowFormRequest {
+      workflowUrn
+      workflow { urn name steps { id description } trigger { form { fields { id name } } } }
+      fields { id values { ... on StringValue { stringValue } ... on NumberValue { numberValue } } }
+      decisions { stepId result note timestamp decidedBy { urn username } }
+    } }
   }
 }"""
 
@@ -137,7 +136,7 @@ class GraphResolver:
         return result
 
     def get_action_request(self, urn: str) -> Optional[dict]:
-        return self._query(ACTION_REQUEST_QUERY, urn, "entity")
+        return self._query(ACTION_REQUEST_QUERY, urn, "actionRequest")
 
     def get_workflow(self, urn: str) -> Optional[dict]:
         return self._query(WORKFLOW_QUERY, urn, "entity")

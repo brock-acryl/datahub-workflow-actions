@@ -130,6 +130,8 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         for run in runs:
             if self.recorder is not None and run.fired:
                 self.recorder.record(run, rules_by_id.get(run.ruleId), context, started_ms=started_ms)
+            if not run.fired:
+                logger.info("workflow-actions: rule %s not fired (%s)", run.ruleId, run.reason)
             if run.fired:
                 logger.info("workflow-actions: rule %s → %s (%s)", run.ruleId, run.status, run.reason or f"{len(run.steps)} step(s)")
                 for step in run.steps:
