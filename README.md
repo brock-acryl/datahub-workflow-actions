@@ -118,6 +118,48 @@ quoted `db.schema.table` for the connection's dialect). Unfiltered expressions f
 unless the step sets `unsafeRawTemplates: true`. Install drivers as extra pip requirements (`snowflake-sqlalchemy`,
 `psycopg2-binary`, `sqlalchemy-bigquery`, `databricks-sql-connector`).
 
+## Lookups, loops and bulk operations
+
+A rule can fetch a set of assets and act on each of them.
+
+**Lookup steps** (group *Lookup*) run read-only GraphQL through the executor's own
+DataHub client and return `urns`, `entities` (`urn`, `type`, `name`) and `total`,
+paginating internally up to `maxResults`:
+
+| step | what it lists |
+|---|---|
+| `search` | entities matching `types`, `query` and filters (`domain`, `tag`, `term`, `owner`, `platform`, `container`, raw `filters`) via `scrollAcrossEntities` |
+| `data_product_assets` | everything in a data product (`listDataProductAssets`) |
+| `lineage` | upstream/downstream neighbours of `entity` within `hops` (`scrollAcrossLineage`); also `degrees` |
+| `graphql` | any read-only query; `path` plucks a value out of the response (`data`, `value`) |
+
+Lookups run in dry-run too (they only read), so a simulated rule shows what it would act on.
+
+**Loops.** `forEach` fans a step out over a list — `item` and `index` are in scope. `itemWhen`
+(same shape as `when`) filters elements; non-matching items are recorded as skipped.
+
+**Bulk.** Every metadata step takes a list in `entity`, so the simplest bulk form is no loop at
+all: `"entity": "{{ steps.assets.output.urns }}"`. With `forEach`, steps that accept a list
+(`bulkParam` in the catalog) are batched automatically: items whose other params render
+identically are merged into one call per chunk of `batch.size` (default 100) — N items become
+⌈N/size⌉ GraphQL calls. Set `batch.mode: items` to force one call per item. GMS batch mutations
+are used throughout (`batchAddTags`, `batchSetDomain`, `batchUpdateDeprecation`, …), chunked
+to 200 resources per call; `update_description` and `set_structured_property` have no batch API
+and loop per entity inside one step call.
+
+```yaml
+steps:
+  - id: assets
+    type: data_product_assets
+    params: { dataProduct: "{{ entity.urn }}" }
+  - id: tag
+    type: add_tag
+    forEach: "{{ steps.assets.output.entities }}"
+    itemWhen: { operator: AND, filters: [{ field: item.type, values: [DATASET] }] }
+    batch: { size: 100 }
+    params: { entity: "{{ item.urn }}", tag: "urn:li:tag:governed" }
+```
+
 ## Run history
 
 Every rule that fires is recorded in DataHub as a run, the model Airflow and dbt runs use: a data flow per

@@ -79,6 +79,16 @@ class RetryPolicy(StrictModel):
     maxDelaySeconds: float = Field(60.0, ge=0)
 
 
+class BatchPolicy(StrictModel):
+    """How a forEach fan-out is issued when the step accepts a list (§19)."""
+
+    mode: Literal["auto", "items"] = Field(
+        "auto",
+        description="auto: items whose other params match are merged into one call per chunk; items: one call per item.",
+    )
+    size: int = Field(100, ge=1, le=1000, description="Max items per merged call.")
+
+
 class Step(StrictModel):
     id: str = Field(min_length=1)
     type: str = Field(min_length=1, description="A step type from the catalog (add_tag, webhook, …).")
@@ -91,6 +101,12 @@ class Step(StrictModel):
     timeoutSeconds: Optional[float] = Field(None, gt=0)
     forEach: Optional[str] = Field(
         None, description="Path or template yielding a list; the step runs once per element as `item`."
+    )
+    itemWhen: Optional[FilterGroup] = Field(
+        None, description="With forEach: conditions evaluated per element (`item`, `index` in scope); non-matching items are skipped."
+    )
+    batch: Optional[BatchPolicy] = Field(
+        None, description="With forEach on a step that accepts a list: merge items into bulk calls (default auto, 100 per call)."
     )
     idempotencyKey: Optional[str] = Field(
         None, description="Template; defaults to event id + rule id + step id (+ item index)."

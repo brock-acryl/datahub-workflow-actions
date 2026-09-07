@@ -46,7 +46,8 @@
       "entity",
       "owner"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "add_tag",
@@ -89,7 +90,8 @@
       "entity",
       "tag"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "add_term",
@@ -132,7 +134,8 @@
       "entity",
       "term"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "add_to_data_product",
@@ -165,7 +168,8 @@
       "entity",
       "dataProduct"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "clear_domain",
@@ -192,7 +196,57 @@
     "required": [
       "entity"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
+  },
+  {
+    "type": "data_product_assets",
+    "label": "Assets in data product",
+    "description": "List every asset that belongs to a data product.",
+    "group": "Lookup",
+    "params": {
+      "maxResults": {
+        "default": 1000,
+        "description": "Stop after this many entities.",
+        "maximum": 10000,
+        "minimum": 1,
+        "title": "Maxresults",
+        "type": "integer"
+      },
+      "dataProduct": {
+        "description": "Data product URN.",
+        "title": "Dataproduct",
+        "type": "string"
+      },
+      "types": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Restrict to these entity types (optional).",
+        "title": "Types"
+      }
+    },
+    "required": [
+      "dataProduct"
+    ],
+    "outputs": {
+      "urns": "URNs of the matching entities",
+      "entities": "Matching entities as {urn, type, name}",
+      "total": "Total matches reported by DataHub (may exceed the rows kept)"
+    },
+    "bulkParam": null
   },
   {
     "type": "deprecate",
@@ -258,7 +312,8 @@
     "required": [
       "entity"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "email",
@@ -313,7 +368,53 @@
       "subject",
       "body"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": null
+  },
+  {
+    "type": "graphql",
+    "label": "GraphQL query",
+    "description": "Run any read-only DataHub GraphQL query and expose the result to later steps.",
+    "group": "Lookup",
+    "params": {
+      "query": {
+        "description": "A GraphQL query (reads only \u2014 use the metadata steps to write).",
+        "title": "Query",
+        "type": "string"
+      },
+      "variables": {
+        "anyOf": [
+          {},
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Variables as JSON, e.g. {\"urn\": \"{{ entity.urn }}\"}.",
+        "title": "Variables"
+      },
+      "path": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Dot path into the response to expose as `value`, e.g. dataset.schemaMetadata.fields.",
+        "title": "Path"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "outputs": {
+      "data": "The query's data payload",
+      "value": "The part of the response selected by `path` (or all of it)"
+    },
+    "bulkParam": null
   },
   {
     "type": "jira_issue",
@@ -388,7 +489,72 @@
       "key": "Issue key",
       "id": "Issue id",
       "url": "Browse URL"
-    }
+    },
+    "bulkParam": null
+  },
+  {
+    "type": "lineage",
+    "label": "Lineage neighbours",
+    "description": "Collect the upstream or downstream entities of an asset.",
+    "group": "Lookup",
+    "params": {
+      "maxResults": {
+        "default": 1000,
+        "description": "Stop after this many entities.",
+        "maximum": 10000,
+        "minimum": 1,
+        "title": "Maxresults",
+        "type": "integer"
+      },
+      "entity": {
+        "description": "Starting entity URN. Usually {{ entity.urn }}.",
+        "title": "Entity",
+        "type": "string"
+      },
+      "direction": {
+        "default": "DOWNSTREAM",
+        "description": "UPSTREAM or DOWNSTREAM.",
+        "title": "Direction",
+        "type": "string"
+      },
+      "hops": {
+        "default": 1,
+        "description": "How many hops to follow.",
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Hops",
+        "type": "integer"
+      },
+      "types": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Restrict to these entity types (optional).",
+        "title": "Types"
+      }
+    },
+    "required": [
+      "entity"
+    ],
+    "outputs": {
+      "urns": "URNs of the matching entities",
+      "entities": "Matching entities as {urn, type, name}",
+      "total": "Total matches reported by DataHub (may exceed the rows kept)",
+      "degrees": "Hop distance per URN"
+    },
+    "bulkParam": null
   },
   {
     "type": "remove_owner",
@@ -443,7 +609,8 @@
       "entity",
       "owner"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "remove_tag",
@@ -486,7 +653,8 @@
       "entity",
       "tag"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "remove_term",
@@ -529,7 +697,181 @@
       "entity",
       "term"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
+  },
+  {
+    "type": "search",
+    "label": "Find assets",
+    "description": "Search DataHub for entities matching types, text and filters; later steps act on the result.",
+    "group": "Lookup",
+    "params": {
+      "maxResults": {
+        "default": 1000,
+        "description": "Stop after this many entities.",
+        "maximum": 10000,
+        "minimum": 1,
+        "title": "Maxresults",
+        "type": "integer"
+      },
+      "types": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Entity types to include, e.g. DATASET, DASHBOARD. Empty = all.",
+        "title": "Types"
+      },
+      "query": {
+        "default": "*",
+        "description": "Search text; * for everything.",
+        "title": "Query",
+        "type": "string"
+      },
+      "domain": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Domain URN(s) the entities must belong to.",
+        "title": "Domain"
+      },
+      "tag": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Tag URN(s) the entities must carry.",
+        "title": "Tag"
+      },
+      "term": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Glossary term URN(s) the entities must carry.",
+        "title": "Term"
+      },
+      "owner": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Owner URN(s).",
+        "title": "Owner"
+      },
+      "platform": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Data platform URN(s), e.g. urn:li:dataPlatform:snowflake.",
+        "title": "Platform"
+      },
+      "container": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Container URN(s).",
+        "title": "Container"
+      },
+      "filters": {
+        "anyOf": [
+          {},
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Extra filters as JSON: [{\"field\": \"origin\", \"values\": [\"PROD\"]}] or a full orFilters list.",
+        "title": "Filters"
+      }
+    },
+    "required": [],
+    "outputs": {
+      "urns": "URNs of the matching entities",
+      "entities": "Matching entities as {urn, type, name}",
+      "total": "Total matches reported by DataHub (may exceed the rows kept)"
+    },
+    "bulkParam": null
   },
   {
     "type": "set_domain",
@@ -562,7 +904,8 @@
       "entity",
       "domain"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "set_structured_property",
@@ -611,7 +954,8 @@
       "property",
       "values"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "slack",
@@ -669,7 +1013,8 @@
     "outputs": {
       "ts": "Message timestamp",
       "channel": "Channel id"
-    }
+    },
+    "bulkParam": null
   },
   {
     "type": "sql",
@@ -739,7 +1084,8 @@
       "rowcount": "Rows affected by the last statement",
       "rows": "Rows returned by the last statement (capped)",
       "statements": "Statements as executed"
-    }
+    },
+    "bulkParam": null
   },
   {
     "type": "teams",
@@ -772,7 +1118,8 @@
       "webhookUrl",
       "text"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": null
   },
   {
     "type": "undeprecate",
@@ -799,7 +1146,8 @@
     "required": [
       "entity"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "update_description",
@@ -831,7 +1179,8 @@
       "entity",
       "description"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": "entity"
   },
   {
     "type": "wait",
@@ -849,7 +1198,8 @@
     "required": [
       "seconds"
     ],
-    "outputs": {}
+    "outputs": {},
+    "bulkParam": null
   },
   {
     "type": "webhook",
@@ -931,6 +1281,7 @@
       "status": "HTTP status code",
       "body": "Parsed JSON body (or text)",
       "headers": "Response headers"
-    }
+    },
+    "bulkParam": null
   }
 ]

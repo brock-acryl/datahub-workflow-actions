@@ -41,7 +41,7 @@ def test_metadata_steps_call_the_right_mutations(fake_graph):
     run("remove_owner", {"entity": DATASET, "owner": "urn:li:corpuser:u"}, ctx)
     run("clear_domain", {"entity": DATASET}, ctx)
     mutations = [q.split("{", 1)[1].split("(", 1)[0].strip() for q, _ in fake_graph.calls]
-    assert mutations == ["batchAddTags", "batchAddOwners", "batchAddOwners", "batchSetDomain", "batchSetDataProduct", "upsertStructuredProperties", "updateDeprecation", "updateDescription", "batchRemoveOwners", "unsetDomain"]
+    assert mutations == ["batchAddTags", "batchAddOwners", "batchAddOwners", "batchSetDomain", "batchSetDataProduct", "upsertStructuredProperties", "batchUpdateDeprecation", "updateDescription", "batchRemoveOwners", "batchSetDomain"]
     tag_vars = fake_graph.calls[0][1]["input"]
     assert tag_vars == {"tagUrns": ["urn:li:tag:a", "urn:li:tag:b"], "resources": [{"resourceUrn": DATASET}]}
     owners_vars = fake_graph.calls[1][1]["input"]["owners"][0]
@@ -51,7 +51,8 @@ def test_metadata_steps_call_the_right_mutations(fake_graph):
     sp_values = fake_graph.calls[5][1]["input"]["structuredPropertyInputParams"][0]["values"]
     assert sp_values == [{"numberValue": 3.0}, {"stringValue": "high"}]
     dep = fake_graph.calls[6][1]["input"]
-    assert dep == {"urn": DATASET, "deprecated": True, "note": "bye", "replacement": "urn:li:dataset:new"}
+    assert dep == {"deprecated": True, "resources": [{"resourceUrn": DATASET}], "note": "bye", "replacement": "urn:li:dataset:new"}
+    assert fake_graph.calls[9][1]["input"] == {"domainUrn": None, "resources": [{"resourceUrn": DATASET}]}
 
 
 def test_metadata_steps_dry_run_without_graph():
@@ -116,3 +117,12 @@ def test_wait_uses_injected_sleep():
 def test_email_dry_run_lists_recipients():
     out = run("email", {"to": "a@x.com, b@x.com", "subject": "s", "body": "b"}, RunContext(env={"SMTP_FROM": "noreply@x.com"}, dry_run=True))
     assert out["to"] == ["a@x.com", "b@x.com"] and out["from"] == "noreply@x.com"
+
+
+def test_batch_mutations_chunk_large_lists(fake_graph):
+    from datahub_workflow_actions.steps.metadata import BATCH_CHUNK
+
+    urns = [f"urn:li:dataset:{i}" for i in range(BATCH_CHUNK + 5)]
+    out = run("add_tag", {"entity": urns, "tag": "urn:li:tag:a"}, RunContext(graph=fake_graph))
+    assert out["chunks"] == 2 and len(out["results"]) == 2
+    assert [len(v["input"]["resources"]) for _, v in fake_graph.calls] == [BATCH_CHUNK, 5]

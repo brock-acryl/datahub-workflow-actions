@@ -1,7 +1,9 @@
 """Evaluate rules against a context document and run their steps.
 
 Semantics: steps run in order; ``when`` gates each step; ``forEach`` fans a
-step out over a list (each element as ``item``, index as ``index``); every
+step out over a list (each element as ``item``, index as ``index``, with
+``itemWhen`` filtering elements and ``batch`` merging them into bulk calls
+when the step accepts a list); every
 step's output is exposed to later templates as ``steps.<id>``; failures honour
 ``onError`` (fail the rule / continue / stop), with per-step retry + backoff
 and a timeout; idempotency keys skip work already recorded in the state
@@ -10,6 +12,7 @@ store. ``dry_run`` renders and plans everything without side effects."""
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
@@ -152,35 +155,125 @@ class Engine:
                 items = []
             if not isinstance(items, list):
                 items = [items]
-            item_runs = [
-                self._run_once(rule, step, definition, {**context, "item": item, "index": index}, index)
-                for index, item in enumerate(items)
-            ]
+            indexed = list(enumerate(items))
+
+            # Per-item conditions (§19): `item` / `index` are in scope; misses are recorded, not run.
+            skipped: List[StepRun] = []
+            if step.itemWhen is not None:
+                kept = []
+                for index, item in indexed:
+                    if evaluate(step.itemWhen, {**context, "item": item, "index": index}):
+                        kept.append((index, item))
+                    else:
+                        skipped.append(StepRun(step.id, step.type, "skipped", reason=f"item {index}: conditions not met"))
+                indexed = kept
+
+            # Smart batching (§19): a step that accepts a list gets one call per chunk of items
+            # whose other params agree, instead of one call per item.
+            mode = step.batch.mode if step.batch else "auto"
+            size = step.batch.size if step.batch else 100
+            batched = mode == "auto" and bool(definition.bulk_param) and len(indexed) > 1
+            if batched:
+                item_runs = self._run_batched(rule, step, definition, context, indexed, size)
+            else:
+                item_runs = [
+                    self._run_once(rule, step, definition, {**context, "item": item, "index": index}, index)
+                    for index, item in indexed
+                ]
             failed = [r for r in item_runs if not r.ok()]
             status = "failed" if failed else ("dry-run" if self.dry_run else "ok")
+            reason = f"{len(items)} item(s)"
+            if skipped:
+                reason += f", {len(skipped)} skipped"
+            if batched:
+                reason += f", {len(item_runs)} call(s)"
             return StepRun(
                 step.id,
                 step.type,
                 status,
-                reason=f"{len(items)} item(s)",
+                reason=reason,
                 attempts=sum(r.attempts for r in item_runs),
                 output=[r.output for r in item_runs],
                 error="; ".join(f"[{r.reason}] {r.error}" for r in failed) or None,
-                items=item_runs,
+                items=item_runs + skipped,
             )
         return self._run_once(rule, step, definition, context, None)
 
-    def _run_once(self, rule: Rule, step: Step, definition, context: Mapping[str, Any], index: Optional[int]) -> StepRun:
+    def _run_batched(self, rule: Rule, step: Step, definition, context: Mapping[str, Any], indexed, size: int) -> List[StepRun]:
+        bulk = definition.bulk_param
+        groups: Dict[str, List[tuple]] = {}
+        order: List[str] = []
+        runs: List[StepRun] = []
+        for index, item in indexed:
+            try:
+                rendered = render_params(step.params, {**context, "item": item, "index": index})
+            except TemplateError as e:
+                runs.append(StepRun(step.id, step.type, "failed", reason=f"item {index}", error=f"invalid params: {e}"))
+                continue
+            key = json.dumps({k: v for k, v in rendered.items() if k != bulk}, sort_keys=True, default=str)
+            if key not in groups:
+                order.append(key)
+            groups.setdefault(key, []).append((index, item, rendered))
+        batch_no = 0
+        for key in order:
+            members = groups[key]
+            for start in range(0, len(members), size):
+                chunk = members[start : start + size]
+                batch_no += 1
+                values: List[Any] = []
+                for _, _, rendered in chunk:
+                    value = rendered.get(bulk)
+                    if isinstance(value, list):
+                        values.extend(value)
+                    elif value is not None and value != "":
+                        values.append(value)
+                first_index, first_item, first_rendered = chunk[0]
+                batch_context = {
+                    **context,
+                    "items": [member[1] for member in chunk],
+                    "item": first_item,
+                    "index": first_index,
+                    "batch": batch_no,
+                }
+                runs.append(
+                    self._run_once(
+                        rule,
+                        step,
+                        definition,
+                        batch_context,
+                        first_index,
+                        rendered={**first_rendered, bulk: values},
+                        label=f"batch {batch_no}: {len(chunk)} item(s)",
+                        key_suffix=f"batch{batch_no}",
+                    )
+                )
+        return runs
+
+    def _run_once(
+        self,
+        rule: Rule,
+        step: Step,
+        definition,
+        context: Mapping[str, Any],
+        index: Optional[int],
+        *,
+        rendered: Optional[Dict[str, Any]] = None,
+        label: Optional[str] = None,
+        key_suffix: Optional[str] = None,
+    ) -> StepRun:
         event_id = (context.get("event") or {}).get("id", "no-event")
+        label = label or (f"item {index}" if index is not None else None)
         try:
             if step.idempotencyKey:
                 key = str(render_value(step.idempotencyKey, context))
             else:
-                key = f"{event_id}|{rule.id}|{step.id}" + (f"|{index}" if index is not None else "")
-            rendered = render_params(step.params, context)
+                suffix = key_suffix or (str(index) if index is not None else None)
+                key = f"{event_id}|{rule.id}|{step.id}" + (f"|{suffix}" if suffix is not None else "")
+            if rendered is None:
+                rendered = render_params(step.params, context)
             params = definition.params.model_validate(rendered)
         except (TemplateError, ValueError) as e:
-            return StepRun(step.id, step.type, "failed", reason=f"item {index}" if index is not None else None, error=f"invalid params: {e}")
+            return StepRun(step.id, step.type, "failed", reason=label, error=f"invalid params: {e}")
 
         if self.state.seen(key) and not self.dry_run:
             return StepRun(step.id, step.type, "skipped", reason="already ran (idempotency key)", params=rendered, idempotencyKey=key, output=self.state.get(key))
@@ -206,7 +299,7 @@ class Engine:
                     self.state.mark(key, output)
                 return StepRun(
                     step.id, step.type, "dry-run" if self.dry_run else "ok",
-                    reason=f"item {index}" if index is not None else None,
+                    reason=label,
                     attempts=attempt, params=rendered, output=output, idempotencyKey=key,
                 )
             except concurrent.futures.TimeoutError:
@@ -221,7 +314,7 @@ class Engine:
                 logger.info("workflow-actions: retrying step %s (attempt %s/%s)", step.id, attempt + 1, attempts_allowed)
         return StepRun(
             step.id, step.type, status,
-            reason=f"item {index}" if index is not None else None,
+            reason=label,
             attempts=attempts_allowed, params=rendered, error=last_error, idempotencyKey=key,
         )
 

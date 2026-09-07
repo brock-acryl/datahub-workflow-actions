@@ -92,7 +92,7 @@ def test_cli_schema_catalog_validate_simulate(tmp_path, capsys):
     run = next(r for r in out["runs"] if r["ruleId"] == "on-approval")
     assert run["status"] == "dry-run"
     assert run["steps"][0]["output"]["variables"]["input"]["tagUrns"] == ["urn:li:tag:access-granted"]
-    assert run["steps"][1]["reason"] == "2 item(s)"  # fanned out over the two fixture owners
+    assert run["steps"][1]["reason"] == "2 item(s), 2 call(s)"  # fanned out over the two fixture owners (distinct owners → no merge)
     assert run["steps"][1]["items"][1]["params"]["owner"] == "urn:li:corpGroup:data-eng"
     assert out["context"]["entity"]["urn"] == DATASET
     assert next(r for r in out["runs"] if r["ruleId"] == "other-wf")["reason"].startswith("workflow")

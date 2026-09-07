@@ -1,5 +1,31 @@
 {
   "$defs": {
+    "BatchPolicy": {
+      "additionalProperties": false,
+      "description": "How a forEach fan-out is issued when the step accepts a list (\u00a719).",
+      "properties": {
+        "mode": {
+          "default": "auto",
+          "description": "auto: items whose other params match are merged into one call per chunk; items: one call per item.",
+          "enum": [
+            "auto",
+            "items"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "size": {
+          "default": 100,
+          "description": "Max items per merged call.",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "title": "BatchPolicy",
+      "type": "object"
+    },
     "Filter": {
       "additionalProperties": false,
       "description": "One condition over a dotted path into the context document.",
@@ -303,6 +329,30 @@
           "default": null,
           "description": "Path or template yielding a list; the step runs once per element as `item`.",
           "title": "Foreach"
+        },
+        "itemWhen": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterGroup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With forEach: conditions evaluated per element (`item`, `index` in scope); non-matching items are skipped."
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BatchPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With forEach on a step that accepts a list: merge items into bulk calls (default auto, 100 per call)."
         },
         "idempotencyKey": {
           "anyOf": [

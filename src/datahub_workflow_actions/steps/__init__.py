@@ -42,6 +42,15 @@ class RunContext:
         result = self.graph.execute_graphql(query, variables=variables)
         return {"mutation": mutation, "result": result.get(mutation) if isinstance(result, dict) else result}
 
+    def query(self, query: str, variables: dict, *, operation: str) -> Any:
+        """Runs a read-only query and returns its ``operation`` payload. Lookups
+        run even in dry-run mode (they only read) so a simulated rule shows what
+        it would act on; without a graph (offline simulate) they return None."""
+        if self.graph is None:
+            return None
+        result = self.graph.execute_graphql(query, variables=variables)
+        return result.get(operation) if isinstance(result, dict) else result
+
 
 @dataclass
 class StepDefinition:
@@ -54,6 +63,8 @@ class StepDefinition:
     outputs: Dict[str, str] = field(default_factory=dict)
     # Inspects RAW (unrendered) params; returns problems. Used by the engine before rendering and by `validate`.
     validate_template: Optional[Callable[[Dict[str, Any]], List[str]]] = None
+    # The param that accepts a list (e.g. "entity"): with forEach the engine merges items into one call per chunk.
+    bulk_param: Optional[str] = None
 
     def describe(self) -> dict:
         schema = self.params.model_json_schema()
@@ -65,6 +76,7 @@ class StepDefinition:
             "params": schema.get("properties", {}),
             "required": schema.get("required", []),
             "outputs": self.outputs,
+            "bulkParam": self.bulk_param,
         }
 
 
@@ -80,9 +92,12 @@ def step(
     params: Type[StepParams],
     outputs: Optional[Dict[str, str]] = None,
     validate_template: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
+    bulk_param: Optional[str] = None,
 ):
     def decorator(fn: Callable[[Any, RunContext], dict]) -> Callable[[Any, RunContext], dict]:
-        REGISTRY[type_] = StepDefinition(type_, label, description, group, params, fn, outputs or {}, validate_template)
+        REGISTRY[type_] = StepDefinition(
+            type_, label, description, group, params, fn, outputs or {}, validate_template, bulk_param
+        )
         return fn
 
     return decorator
@@ -108,4 +123,4 @@ def catalog() -> List[dict]:
 
 def _ensure_loaded() -> None:
     # Import the built-in step modules once; they register themselves.
-    from datahub_workflow_actions.steps import integration, metadata, sql  # noqa: F401
+    from datahub_workflow_actions.steps import integration, lookup, metadata, sql  # noqa: F401

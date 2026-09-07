@@ -171,3 +171,103 @@ def test_invalid_rendered_params_fail_the_step(context):
     config = cfg(rule(steps=[{"id": "bad", "type": "add_tag", "params": {"entity": "{{ entity.urn }}", "tag": "{{ form.nope }}"}}]))
     run = Engine().run(config, context)[0]
     assert run.steps[0].status == "failed" and "invalid params" in run.steps[0].error
+
+
+# ---- §19: per-item conditions and smart batching -----------------------------
+
+
+def _for_each_rule(step_extra=None, params=None):
+    from datahub_workflow_actions.contract import Rule
+
+    return Rule.model_validate(
+        {
+            "id": "r",
+            "workflowUrn": "urn:li:actionWorkflow:w",
+            "on": {"operation": "COMPLETED", "result": "ACCEPTED"},
+            "steps": [
+                {
+                    "id": "tag",
+                    "type": "add_tag",
+                    "forEach": "{{ lookup.urns }}",
+                    "params": params or {"entity": "{{ item }}", "tag": "urn:li:tag:pii"},
+                    **(step_extra or {}),
+                }
+            ],
+        }
+    )
+
+
+def _engine_with(graph):
+    from datahub_workflow_actions.engine import Engine
+    from datahub_workflow_actions.steps import RunContext
+
+    return Engine(RunContext(graph=graph))
+
+
+def _ctx(urns):
+    # (the engine owns `steps`; seed the list elsewhere in the context)
+    return {"event": {"id": "e1", "operation": "COMPLETED"}, "lookup": {"urns": urns}}
+
+
+def test_for_each_auto_batches_list_params(fake_graph):
+    urns = [f"urn:li:dataset:{i}" for i in range(5)]
+    engine = _engine_with(fake_graph)
+    run = engine.run_rule(_for_each_rule({"batch": {"size": 2}}), _ctx(urns))
+    step = run.steps[0]
+    assert step.status == "ok" and step.reason == "5 item(s), 3 call(s)"
+    assert [r.reason for r in step.items] == ["batch 1: 2 item(s)", "batch 2: 2 item(s)", "batch 3: 1 item(s)"]
+    sent = [v["input"]["resources"] for _, v in fake_graph.calls]
+    assert [len(s) for s in sent] == [2, 2, 1]
+    assert sent[0][0]["resourceUrn"] == urns[0] and sent[2][0]["resourceUrn"] == urns[4]
+    # each call has its own idempotency key
+    assert len({r.idempotencyKey for r in step.items}) == 3
+
+
+def test_for_each_groups_by_other_params(fake_graph):
+    # tag depends on the item → items with different tags cannot share a call
+    rule = _for_each_rule(params={"entity": "{{ item.urn }}", "tag": "{{ item.tag }}"})
+    items = [
+        {"urn": "urn:li:dataset:a", "tag": "urn:li:tag:x"},
+        {"urn": "urn:li:dataset:b", "tag": "urn:li:tag:y"},
+        {"urn": "urn:li:dataset:c", "tag": "urn:li:tag:x"},
+    ]
+    run = _engine_with(fake_graph).run_rule(rule, _ctx(items))
+    assert run.steps[0].reason == "3 item(s), 2 call(s)"
+    calls = [v["input"] for _, v in fake_graph.calls]
+    assert calls[0]["tagUrns"] == ["urn:li:tag:x"] and [r["resourceUrn"] for r in calls[0]["resources"]] == ["urn:li:dataset:a", "urn:li:dataset:c"]
+    assert calls[1]["tagUrns"] == ["urn:li:tag:y"]
+
+
+def test_for_each_items_mode_runs_per_item(fake_graph):
+    urns = [f"urn:li:dataset:{i}" for i in range(3)]
+    run = _engine_with(fake_graph).run_rule(_for_each_rule({"batch": {"mode": "items"}}), _ctx(urns))
+    assert run.steps[0].reason == "3 item(s)" and len(fake_graph.calls) == 3
+
+
+def test_for_each_item_when_skips_non_matching(fake_graph):
+    items = [{"urn": "urn:li:dataset:a", "type": "DATASET"}, {"urn": "urn:li:chart:b", "type": "CHART"}]
+    rule = _for_each_rule(
+        {"itemWhen": {"operator": "AND", "filters": [{"field": "item.type", "condition": "EQUAL", "values": ["DATASET"]}]}},
+        params={"entity": "{{ item.urn }}", "tag": "urn:li:tag:pii"},
+    )
+    run = _engine_with(fake_graph).run_rule(rule, _ctx(items))
+    step = run.steps[0]
+    assert step.status == "ok" and step.reason == "2 item(s), 1 skipped"
+    assert len(fake_graph.calls) == 1 and fake_graph.calls[0][1]["input"]["resources"] == [{"resourceUrn": "urn:li:dataset:a"}]
+    assert [r.status for r in step.items] == ["ok", "skipped"]
+    assert step.items[1].reason == "item 1: conditions not met"
+
+
+def test_steps_without_bulk_param_never_batch(fake_graph):
+    from datahub_workflow_actions.contract import Rule
+
+    rule = Rule.model_validate(
+        {
+            "id": "r",
+            "workflowUrn": "urn:li:actionWorkflow:w",
+            "on": {"operation": "COMPLETED", "result": "ACCEPTED"},
+            "steps": [{"id": "w", "type": "wait", "forEach": "{{ lookup.urns }}", "params": {"seconds": 0}}],
+        }
+    )
+    run = _engine_with(fake_graph).run_rule(rule, _ctx(["a", "b"]))
+    assert run.steps[0].reason == "2 item(s)" and len(run.steps[0].items) == 2
