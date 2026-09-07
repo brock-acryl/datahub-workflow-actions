@@ -155,7 +155,7 @@ def test_lineage_pages_and_passes_types_and_hops():
     ])
     out = run("lineage", {"entity": "urn:li:dataset:x", "hops": 3, "types": ["DATASET"]}, RunContext(graph=graph))
     inp = graph.calls[0]["input"]
-    assert inp["types"] == ["DATASET"] and inp["orFilters"][0]["and"][0]["values"] == ["1", "2", "3"]
+    assert inp["types"] == ["DATASET"] and inp["orFilters"][0]["and"][0]["values"] == ["1", "2", "3+"]
     assert out["degrees"] == {"urn:li:dataset:1": 1, "urn:li:dataset:2": 3} and out["total"] == 2
 
 
@@ -181,3 +181,12 @@ def test_run_context_query_helper():
     ctx = RunContext(graph=graph, dry_run=True)
     assert ctx.query("query { scrollAcrossEntities }", {}, operation="scrollAcrossEntities") == {"total": 1}
     assert RunContext(graph=None).query("query { x }", {}, operation="x") is None
+
+
+def test_lineage_degree_values_match_the_gms_filter_vocabulary():
+    from datahub_workflow_actions.steps.lookup import degree_values
+
+    assert degree_values(1) == ["1"]
+    assert degree_values(2) == ["1", "2"]
+    assert degree_values(3) == ["1", "2", "3+"]
+    assert degree_values(10) == ["1", "2", "3+"]  # "3+" already means everything beyond two hops

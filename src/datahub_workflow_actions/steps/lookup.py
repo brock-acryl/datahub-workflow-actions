@@ -231,6 +231,14 @@ def data_product_assets(p: DataProductAssetsParams, ctx: RunContext) -> dict:
     return _collect(rows[: p.maxResults], total)
 
 
+def degree_values(hops: int) -> List[str]:
+    """GMS's lineage degree filter accepts exactly "1", "2" and "3+" (three or more hops)."""
+    values = [str(d) for d in range(1, min(hops, 2) + 1)]
+    if hops >= 3:
+        values.append("3+")
+    return values
+
+
 class LineageParams(LookupParams):
     entity: str = Field(description="Starting entity URN. Usually {{ entity.urn }}.")
     direction: str = Field("DOWNSTREAM", description="UPSTREAM or DOWNSTREAM.")
@@ -264,7 +272,7 @@ def lineage(p: LineageParams, ctx: RunContext) -> dict:
     degrees: Dict[str, int] = {}
     total: Optional[int] = None
     scroll_id: Optional[str] = None
-    degree_filter = [{"and": [{"field": "degree", "values": [str(d) for d in range(1, p.hops + 1)], "condition": "EQUAL"}]}]
+    degree_filter = [{"and": [{"field": "degree", "values": degree_values(p.hops), "condition": "EQUAL"}]}]
     while len(rows) < p.maxResults:
         payload: Dict[str, Any] = {
             "urn": p.entity,
