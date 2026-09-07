@@ -40,6 +40,8 @@ ENTITY_FIELDS = """
     ... on MLModel { name }
     ... on MLModelGroup { name }
     ... on MLFeatureTable { name }
+    ... on MLFeature { name }
+    ... on MLPrimaryKey { name }
     ... on Tag { properties { name } }
     ... on CorpUser { username }
     ... on CorpGroup { name }
