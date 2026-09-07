@@ -117,12 +117,12 @@
         },
         "delaySeconds": {
           "default": 1.0,
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "number"
         },
         "maxDelaySeconds": {
           "default": 60.0,
-          "minimum": 0.0,
+          "minimum": 0,
           "type": "number"
         }
       },
@@ -276,7 +276,7 @@
         "timeoutSeconds": {
           "anyOf": [
             {
-              "exclusiveMinimum": 0.0,
+              "exclusiveMinimum": 0,
               "type": "number"
             },
             {

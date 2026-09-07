@@ -101,3 +101,23 @@ def test_published_schema_and_catalog_carry_no_pydantic_titles():
     assert list(titles(rules_json_schema())) == []  # only the root title survives (path == "")
     assert rules_json_schema()["title"] == "DataHub workflow-actions rules"
     assert list(titles(json.loads(json.dumps(catalog())))) == []
+
+
+def test_published_schema_normalises_version_dependent_details():
+    from datahub_workflow_actions.contract import strip_auto_titles
+
+    raw = {
+        "title": "X",
+        "properties": {
+            "delay": {"type": "number", "minimum": 0.0, "maximum": 3600.0, "title": "Delay", "default": 1.0},
+            "params": {"type": "object", "additionalProperties": True, "title": "Params"},
+            "items": {"type": "array", "items": {"additionalProperties": False, "type": "object"}},
+        },
+    }
+    assert strip_auto_titles(raw) == {
+        "properties": {
+            "delay": {"type": "number", "minimum": 0, "maximum": 3600, "default": 1.0},
+            "params": {"type": "object"},
+            "items": {"type": "array", "items": {"additionalProperties": False, "type": "object"}},
+        }
+    }

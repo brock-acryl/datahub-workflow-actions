@@ -1103,8 +1103,8 @@
     "group": "Integration",
     "params": {
       "seconds": {
-        "exclusiveMinimum": 0.0,
-        "maximum": 3600.0,
+        "exclusiveMinimum": 0,
+        "maximum": 3600,
         "type": "number"
       }
     },

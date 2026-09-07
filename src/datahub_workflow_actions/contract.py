@@ -176,12 +176,28 @@ def load_rules(obj: Any) -> RulesConfig:
     raise ValueError("no rules found: expected source.config.rules, {rules: [...]}, or a list")
 
 
+_NUMERIC_BOUNDS = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}
+
+
 def strip_auto_titles(node: Any) -> Any:
-    """Drop pydantic's auto-generated ``title`` keys: they vary between pydantic
-    versions ("OnError" vs "Onerror") and would make the published contract drift
-    without any real change. ``$defs`` keys (the model names) are kept."""
+    """Normalise pydantic's JSON Schema so the published contract does not drift
+    between pydantic versions without a real change: drop auto-generated
+    ``title`` keys ("OnError" vs "Onerror"), drop ``additionalProperties: true``
+    (the JSON Schema default; 2.13 started emitting it for free-form dicts) and
+    write whole-number bounds as integers (``0.0`` vs ``0``). ``$defs`` keys keep
+    their model names."""
     if isinstance(node, dict):
-        return {k: strip_auto_titles(v) for k, v in node.items() if k != "title"}
+        out: Dict[str, Any] = {}
+        for key, value in node.items():
+            if key == "title":
+                continue
+            if key == "additionalProperties" and value is True:
+                continue
+            if key in _NUMERIC_BOUNDS and isinstance(value, float) and value.is_integer():
+                out[key] = int(value)
+                continue
+            out[key] = strip_auto_titles(value)
+        return out
     if isinstance(node, list):
         return [strip_auto_titles(v) for v in node]
     return node
