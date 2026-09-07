@@ -44,6 +44,34 @@ def default_kafka_config() -> Dict[str, Any]:
     return {"connection": connection}
 
 
+def graph_config_from_env() -> Optional[Dict[str, Any]]:
+    """DataHub client config from the executor / CLI environment (DATAHUB_GMS_URL or
+    DATAHUB_GMS_HOST/PORT/PROTOCOL, DATAHUB_GMS_TOKEN)."""
+    server = os.environ.get("DATAHUB_GMS_URL")
+    if not server and os.environ.get("DATAHUB_GMS_HOST"):
+        protocol = os.environ.get("DATAHUB_GMS_PROTOCOL", "http")
+        port = os.environ.get("DATAHUB_GMS_PORT")
+        server = f"{protocol}://{os.environ['DATAHUB_GMS_HOST']}" + (f":{port}" if port else "")
+    if not server:
+        return None
+    token = os.environ.get("DATAHUB_GMS_TOKEN")
+    return {"server": server, **({"token": token} if token else {})}
+
+
+def ensure_visible_logging() -> None:
+    """The datahub CLI drops INFO records from packages it doesn't own, so give our
+    logger its own stream handler once — rule outcomes must show up in the executor log."""
+    ours = logging.getLogger("datahub_workflow_actions")
+    if any(getattr(h, "_workflow_actions", False) for h in ours.handlers):
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s {%(name)s} - %(message)s"))
+    handler._workflow_actions = True  # type: ignore[attr-defined]
+    ours.addHandler(handler)
+    ours.setLevel(logging.INFO)
+    ours.propagate = False
+
+
 class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
     model_config = ConfigDict(extra="allow")
 
@@ -71,10 +99,26 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
     def create(cls, config_dict: dict, ctx: Any) -> "WorkflowActionsSource":
         return cls(WorkflowActionsSourceConfig.model_validate(config_dict), ctx)
 
+    def datahub_client_config(self) -> Optional[Dict[str, Any]]:
+        """The DataHub connection the actions pipeline (and so every step, the
+        resolver and the run recorder) should use: the ingestion pipeline's own
+        graph when the executor gives us one, else the executor environment."""
+        graph = getattr(getattr(self, "ctx", None), "graph", None)
+        cfg = getattr(graph, "config", None)
+        if cfg is not None:
+            out = {
+                key: getattr(cfg, key, None)
+                for key in ("server", "token", "timeout_sec", "retry_status_codes", "retry_max_times", "extra_headers", "ca_certificate_path", "client_certificate_path", "disable_ssl_verification")
+            }
+            return {k: v for k, v in out.items() if v not in (None, "", {}, [])}
+        return graph_config_from_env()
+
     def actions_pipeline_config(self) -> Dict[str, Any]:
         source: Dict[str, Any] = {"type": "kafka", "config": self.config.kafka or default_kafka_config()}
+        datahub = self.datahub_client_config()
         return {
             "name": self.config.pipelineName,
+            **({"datahub": datahub} if datahub else {}),
             "source": source,
             "filter": {"event_type": "EntityChangeEvent_v1", "event": {"entityType": "actionRequest", "category": "LIFECYCLE"}},
             "action": {
@@ -93,8 +137,15 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
     def get_workunits(self) -> Iterable[Any]:
         from datahub_actions.pipeline.pipeline import Pipeline
 
+        ensure_visible_logging()
         pipeline_config = self.actions_pipeline_config()
-        logger.info("workflow-actions: starting actions pipeline with %s rule(s)", len(self.rules.rules))
+        if "datahub" not in pipeline_config:
+            logger.warning("workflow-actions: no DataHub connection available — steps will run without writing to DataHub")
+        logger.info(
+            "workflow-actions: starting actions pipeline with %s rule(s) against %s",
+            len(self.rules.rules),
+            (pipeline_config.get("datahub") or {}).get("server", "no DataHub"),
+        )
         pipeline = Pipeline.create(pipeline_config)
         pipeline.run()  # blocks until stopped
         return iter(())

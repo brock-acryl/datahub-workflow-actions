@@ -1,6 +1,6 @@
 """The in-executor source must reach the broker the environment points at (§19 deploy)."""
 
-from datahub_workflow_actions.source import default_kafka_config
+from datahub_workflow_actions.source import WorkflowActionsSource, WorkflowActionsSourceConfig, default_kafka_config, ensure_visible_logging, graph_config_from_env
 
 
 def test_kafka_defaults_come_from_the_executor_environment(monkeypatch):
@@ -20,3 +20,58 @@ def test_kafka_defaults_fall_back_to_localhost(monkeypatch):
     for key in ("KAFKA_BOOTSTRAP_SERVER", "SCHEMA_REGISTRY_URL", "KAFKA_PROPERTIES_SECURITY_PROTOCOL"):
         monkeypatch.delenv(key, raising=False)
     assert default_kafka_config() == {"connection": {"bootstrap": "localhost:9092", "schema_registry_url": "http://localhost:8081"}}
+
+
+RULES = {"schemaVersion": 1, "rules": []}
+
+
+class _Cfg:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class _Graph:
+    def __init__(self, **kw):
+        self.config = _Cfg(**kw)
+
+
+class _Ctx:
+    def __init__(self, graph=None):
+        self.graph = graph
+
+
+def test_pipeline_uses_the_ingestion_graph_connection():
+    ctx = _Ctx(_Graph(server="http://datahub-gms:8080", token="tok", timeout_sec=30, extra_headers={}, retry_max_times=None))
+    src = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate(RULES), ctx)
+    assert src.actions_pipeline_config()["datahub"] == {"server": "http://datahub-gms:8080", "token": "tok", "timeout_sec": 30}
+
+
+def test_pipeline_falls_back_to_executor_env_for_the_connection(monkeypatch):
+    for key in ("DATAHUB_GMS_URL", "DATAHUB_GMS_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("DATAHUB_GMS_HOST", "datahub-gms")
+    monkeypatch.setenv("DATAHUB_GMS_PORT", "8080")
+    monkeypatch.setenv("DATAHUB_GMS_PROTOCOL", "http")
+    assert graph_config_from_env() == {"server": "http://datahub-gms:8080"}
+    monkeypatch.setenv("DATAHUB_GMS_URL", "https://acme.acryl.io/gms")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "t")
+    assert graph_config_from_env() == {"server": "https://acme.acryl.io/gms", "token": "t"}
+    src = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate(RULES), _Ctx(None))
+    assert src.actions_pipeline_config()["datahub"]["server"] == "https://acme.acryl.io/gms"
+
+
+def test_pipeline_omits_datahub_when_nothing_is_known(monkeypatch):
+    for key in ("DATAHUB_GMS_URL", "DATAHUB_GMS_HOST", "DATAHUB_GMS_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    src = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate(RULES), _Ctx(None))
+    assert "datahub" not in src.actions_pipeline_config()
+
+
+def test_visible_logging_is_idempotent():
+    import logging
+
+    ensure_visible_logging()
+    ensure_visible_logging()
+    ours = logging.getLogger("datahub_workflow_actions")
+    assert len([h for h in ours.handlers if getattr(h, "_workflow_actions", False)]) == 1
+    assert ours.propagate is False and ours.level == logging.INFO
