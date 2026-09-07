@@ -7,6 +7,8 @@ block. Runs until the process is stopped; emits no metadata itself."""
 
 from __future__ import annotations
 
+import os
+
 import logging
 from typing import Any, Dict, Iterable, Optional
 
@@ -27,6 +29,19 @@ except ImportError:  # pragma: no cover
     ConfigModel = BaseModel  # type: ignore[misc,assignment]
     IngestionPipelineContext = Any  # type: ignore[misc,assignment]
     MetadataWorkUnit = Any  # type: ignore[misc,assignment]
+
+
+def default_kafka_config() -> Dict[str, Any]:
+    """datahub-actions' kafka source defaults to localhost:9092; inside an executor
+    the broker and schema registry come from the environment instead."""
+    connection: Dict[str, Any] = {
+        "bootstrap": os.environ.get("KAFKA_BOOTSTRAP_SERVER", "localhost:9092"),
+        "schema_registry_url": os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8081"),
+    }
+    protocol = os.environ.get("KAFKA_PROPERTIES_SECURITY_PROTOCOL")
+    if protocol:
+        connection["consumer_config"] = {"security.protocol": protocol}
+    return {"connection": connection}
 
 
 class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
@@ -57,9 +72,7 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
         return cls(WorkflowActionsSourceConfig.model_validate(config_dict), ctx)
 
     def actions_pipeline_config(self) -> Dict[str, Any]:
-        source: Dict[str, Any] = {"type": "kafka"}
-        if self.config.kafka:
-            source["config"] = self.config.kafka
+        source: Dict[str, Any] = {"type": "kafka", "config": self.config.kafka or default_kafka_config()}
         return {
             "name": self.config.pipelineName,
             "source": source,
