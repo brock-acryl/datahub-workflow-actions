@@ -1,0 +1,44 @@
+# CI for datahub-workflow-actions: the full pytest suite on every supported
+# Python, plus a drift check that the published contract artifacts
+# (contracts/*.json — what the MFE vendors) match the code.
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Regenerate and diff the published contract
+        run: |
+          make artifacts
+          git diff --exit-code -- contracts/ || { echo "contracts/ is stale: run 'make artifacts' and commit"; exit 1; }
