@@ -74,3 +74,11 @@ def test_graph_resolver_uses_the_action_request_root_query():
     assert request["status"] == "COMPLETED" and request["params"]["workflowFormRequest"]["workflowUrn"] == "urn:li:actionWorkflow:w"
     resolver.get_action_request("urn:li:actionRequest:r1")
     assert len(graph.calls) == 1  # cached per instance
+
+
+def test_entity_query_spreads_the_owner_union():
+    """`owner` is the OwnerType union (CorpUser | CorpGroup); a bare `owner { urn }` is rejected by GMS."""
+    from datahub_workflow_actions.context import ENTITY_QUERY
+
+    assert "owner { urn }" not in ENTITY_QUERY
+    assert "owner { ... on CorpUser { urn } ... on CorpGroup { urn } }" in ENTITY_QUERY

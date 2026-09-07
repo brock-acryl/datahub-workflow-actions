@@ -81,21 +81,21 @@ query workflowActionsEntity($urn: String!) {
     urn type
     ... on Dataset { name properties { name description } platform { name properties { displayName } }
       tags { tags { tag { urn } } } glossaryTerms { terms { term { urn } } }
-      ownership { owners { owner { urn } ownershipType { urn } type } } domain { domain { urn } } }
+      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } ownershipType { urn } type } } domain { domain { urn } } }
     ... on Dashboard { properties { name description } platform { name } tags { tags { tag { urn } } }
-      glossaryTerms { terms { term { urn } } } ownership { owners { owner { urn } } } domain { domain { urn } } }
+      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
     ... on Chart { properties { name description } platform { name } tags { tags { tag { urn } } }
-      glossaryTerms { terms { term { urn } } } ownership { owners { owner { urn } } } domain { domain { urn } } }
+      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
     ... on Container { properties { name description } platform { name } tags { tags { tag { urn } } }
-      glossaryTerms { terms { term { urn } } } ownership { owners { owner { urn } } } domain { domain { urn } } }
+      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
     ... on DataJob { properties { name description } tags { tags { tag { urn } } }
-      ownership { owners { owner { urn } } } domain { domain { urn } } }
+      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
     ... on DataFlow { properties { name description } tags { tags { tag { urn } } }
-      ownership { owners { owner { urn } } } domain { domain { urn } } }
-    ... on GlossaryTerm { properties { name description } ownership { owners { owner { urn } } } }
-    ... on GlossaryNode { properties { name description } ownership { owners { owner { urn } } } }
-    ... on Domain { properties { name description } ownership { owners { owner { urn } } } }
-    ... on DataProduct { properties { name description } ownership { owners { owner { urn } } } domain { domain { urn } } }
+      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+    ... on GlossaryTerm { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
+    ... on GlossaryNode { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
+    ... on Domain { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
+    ... on DataProduct { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
   }
 }"""
 
