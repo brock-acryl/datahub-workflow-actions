@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Mapping, Any, Dict, Optional
 
 from datahub_workflow_actions.context import GraphResolver, build_context, is_workflow_lifecycle_event
 from datahub_workflow_actions.contract import RulesConfig, load_rules
@@ -51,6 +51,19 @@ def load_config(config_dict: Dict[str, Any]) -> RulesConfig:
             data = yaml.safe_load(text)
         return load_rules(data)
     return load_rules(config_dict)
+
+
+def event_payload(inner: Any) -> Dict[str, Any]:
+    """EntityChangeEvent as a plain dict *including* ``parameters``. datahub-actions
+    keeps the free-form parameters outside the Avro record (``__parameters_json``),
+    so ``to_obj()`` alone silently drops workflowUrn, result, fields, …"""
+    payload: Dict[str, Any] = inner.to_obj() if hasattr(inner, "to_obj") else dict(inner)
+    params = getattr(inner, "safe_parameters", None)
+    if params is None and isinstance(inner, Mapping):
+        params = inner.get("parameters")
+    if params:
+        payload["parameters"] = dict(params)
+    return payload
 
 
 class WorkflowActionsAction(Action):  # type: ignore[misc]
@@ -106,8 +119,7 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
     def act(self, event: Any) -> None:
         if getattr(event, "event_type", None) != ENTITY_CHANGE_EVENT_V1_TYPE:
             return
-        payload = event.event.to_obj() if hasattr(event.event, "to_obj") else dict(event.event)
-        self.handle_event(payload)
+        self.handle_event(event_payload(event.event))
 
     def handle_event(self, payload: Dict[str, Any]) -> list:
         if not is_workflow_lifecycle_event(payload):

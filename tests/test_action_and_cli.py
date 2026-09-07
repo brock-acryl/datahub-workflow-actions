@@ -111,3 +111,37 @@ def test_source_builds_actions_pipeline_config():
     assert pipeline["source"] == {"type": "kafka", "config": {"connection": {"bootstrap": "kafka:9092"}}}
     assert pipeline["action"]["type"] == "workflow_actions" and len(pipeline["action"]["config"]["rules"]) == 2
     assert pipeline["filter"]["event"]["entityType"] == "actionRequest"
+
+
+def test_act_keeps_event_parameters_from_the_actions_envelope(fake_graph, monkeypatch):
+    """datahub-actions stores EntityChangeEvent parameters outside the Avro record;
+    to_obj() drops them, which made every rule report "event has no workflow urn"."""
+    import json
+
+    from datahub_workflow_actions.action import event_payload
+
+    raw = {
+        "entityType": "actionRequest",
+        "entityUrn": "urn:li:actionRequest:r1",
+        "category": "LIFECYCLE",
+        "operation": "COMPLETED",
+        "auditStamp": {"time": 1, "actor": "urn:li:corpuser:admin"},
+        "version": 0,
+        "parameters": {"workflowUrn": WF, "result": "ACCEPTED", "actionRequestType": "WORKFLOW_FORM_REQUEST", "entityUrn": DATASET},
+    }
+    event = EntityChangeEvent.from_json(json.dumps(raw))
+    assert "parameters" not in event.to_obj()  # the datahub-actions quirk this guards against
+    payload = event_payload(event)
+    assert payload["parameters"]["workflowUrn"] == WF and payload["operation"] == "COMPLETED"
+
+    class G:
+        graph = fake_graph
+
+    class C:
+        graph = G()
+
+    action = WorkflowActionsAction.create({**RULES, "inMemoryState": True, "dryRun": True}, C())
+    seen = {}
+    monkeypatch.setattr(action, "handle_event", lambda p: seen.setdefault("payload", p) or [])
+    action.act(EventEnvelope(ENTITY_CHANGE_EVENT_V1_TYPE, event, {}))
+    assert seen["payload"]["parameters"]["workflowUrn"] == WF
