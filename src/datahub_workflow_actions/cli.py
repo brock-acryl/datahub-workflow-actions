@@ -36,6 +36,34 @@ def cmd_catalog(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_triggers(args: argparse.Namespace) -> int:
+    """§21: the EntityChangeEvent vocabulary GMS emits (categories, operations, parameter keys)."""
+    from datahub_workflow_actions.contract import triggers_catalog
+
+    print(json.dumps(triggers_catalog(), indent=2))
+    return 0
+
+
+def trigger_warnings(config) -> list:
+    """Advice, not errors: categories / operations / entity types outside the published vocabulary."""
+    from datahub_workflow_actions.contract import KNOWN_ENTITY_TYPES, KNOWN_TRIGGERS
+
+    known_types = {t.lower() for t in KNOWN_ENTITY_TYPES}
+    warnings = []
+    for rule in config.event_rules():
+        known = KNOWN_TRIGGERS.get(rule.on.category)
+        if known is None:
+            warnings.append(f"{rule.id}: category '{rule.on.category}' is not one GMS is known to emit")
+            continue
+        for op in rule.on.operations:
+            if op not in known["operations"]:
+                warnings.append(f"{rule.id}: {rule.on.category} is not known to emit operation '{op}'")
+        for entity_type in rule.on.entityTypes:
+            if entity_type.lower() not in known_types:
+                warnings.append(f"{rule.id}: unknown entity type '{entity_type}'")
+    return warnings
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     try:
         raw = _load(args.rules)
@@ -43,6 +71,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"INVALID: {e}", file=sys.stderr)
         return 1
+    for warning in trigger_warnings(config):
+        print(f"WARNING: {warning}", file=sys.stderr)
     unknown = []
     from datahub_workflow_actions.steps import get_step, known_step_types
 
@@ -62,7 +92,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
     if connection_problems:
         print("INVALID:\n  " + "\n  ".join(connection_problems), file=sys.stderr)
         return 1
-    print(f"OK: {len(config.rules)} rule(s), schemaVersion {config.schemaVersion}")
+    print(
+        f"OK: {len(config.rules)} rule(s) — {len(config.workflow_rules())} workflow, {len(config.event_rules())} event; schemaVersion {config.schemaVersion}"
+    )
     return 0
 
 
@@ -124,6 +156,7 @@ def main(argv: Optional[list] = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("schema", help="print the rules JSON Schema").set_defaults(func=cmd_schema)
     sub.add_parser("catalog", help="print the step catalog").set_defaults(func=cmd_catalog)
+    sub.add_parser("triggers", help="print the change-event vocabulary (categories, operations, parameters)").set_defaults(func=cmd_triggers)
     validate = sub.add_parser("validate", help="validate a recipe or rules file")
     validate.add_argument("rules")
     validate.set_defaults(func=cmd_validate)

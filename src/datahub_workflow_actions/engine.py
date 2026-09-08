@@ -18,8 +18,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-from datahub_workflow_actions.contract import Rule, RulesConfig, Step
-from datahub_workflow_actions.filters import evaluate
+from datahub_workflow_actions.contract import EventTrigger, Filter, Rule, RulesConfig, Step, ValueMatch
+from datahub_workflow_actions.filters import _matches_one, evaluate, evaluate_filter
 from datahub_workflow_actions.state import InMemoryStateStore
 from datahub_workflow_actions.steps import RunContext, get_step
 from datahub_workflow_actions.templating import TemplateError, render_params, render_value
@@ -56,9 +56,52 @@ class RuleRun:
         return asdict(self)
 
 
+def _value_matches(actual: Any, match: ValueMatch) -> bool:
+    probe = Filter(field="modifier", condition=match.condition, values=match.values, negated=False, caseInsensitive=match.caseInsensitive)
+    if match.condition == "EXISTS":
+        result = actual not in (None, "", [], {})
+    elif actual is None:
+        result = False
+    else:
+        result = _matches_one(actual, probe)
+    return (not result) if match.negated else result
+
+
+def event_trigger_matches(trigger: EventTrigger, event: Mapping[str, Any], own_actor: Optional[str] = None) -> Optional[str]:
+    """§21 — None when an EntityChangeEvent view ({entityType, category, operation, modifier,
+    parameters, actor}) satisfies the trigger; otherwise the reason. Cheap checks first, so this
+    can run on every event before any lookup."""
+    category = str(event.get("category") or "").upper()
+    if category != trigger.category:
+        return f"category {category or '?'} != {trigger.category}"
+    operation = str(event.get("operation") or "").upper()
+    if trigger.operations and operation not in trigger.operations:
+        return f"operation {operation or '?'} not in {trigger.operations}"
+    entity_type = str(event.get("entityType") or "")
+    if trigger.entityTypes and entity_type.lower() not in {t.lower() for t in trigger.entityTypes}:
+        return f"entity type {entity_type or '?'} not in {trigger.entityTypes}"
+    actor = event.get("actor")
+    if trigger.ignoreOwnChanges and own_actor and actor == own_actor:
+        return f"own change (actor {actor})"
+    if trigger.modifier is not None and not _value_matches(event.get("modifier"), trigger.modifier):
+        return f"modifier {event.get('modifier')} does not match"
+    parameters = event.get("parameters") or {}
+    for condition in trigger.parameters:
+        if not evaluate_filter(condition, parameters):
+            return f"parameter {condition.field} does not match"
+    return None
+
+
 def trigger_matches(rule: Rule, context: Mapping[str, Any]) -> Optional[str]:
     """None when the rule's trigger matches the event; otherwise the reason it doesn't."""
     event = context.get("event") or {}
+    if isinstance(rule.on, EventTrigger):
+        if event.get("type") == "Schedule":
+            return "a schedule tick, not a change event"
+        if event.get("category") is None:
+            return "not a change event"
+        own_actor = (context.get("engine") or {}).get("actor")
+        return event_trigger_matches(rule.on, event, own_actor)
     workflow_urn = (context.get("workflow") or {}).get("urn")
     if workflow_urn and rule.workflowUrn != workflow_urn:
         return f"workflow {workflow_urn} != {rule.workflowUrn}"

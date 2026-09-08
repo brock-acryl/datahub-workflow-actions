@@ -15,3 +15,10 @@ def test_committed_schema_matches_generated():
 def test_committed_catalog_matches_generated():
     committed = json.loads((ROOT / "catalog.json").read_text())
     assert committed == catalog(), "run `make artifacts` to refresh contracts/catalog.json"
+
+
+def test_committed_triggers_catalog_matches_generated():
+    from datahub_workflow_actions.contract import triggers_catalog
+
+    committed = json.loads((ROOT / "triggers.json").read_text())
+    assert committed == triggers_catalog(), "run `make artifacts` to refresh contracts/triggers.json"

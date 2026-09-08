@@ -147,3 +147,25 @@ def test_act_keeps_event_parameters_from_the_actions_envelope(fake_graph, monkey
     monkeypatch.setattr(action, "handle_event", lambda p: seen.setdefault("payload", p) or [])
     action.act(EventEnvelope(ENTITY_CHANGE_EVENT_V1_TYPE, event, {}))
     assert seen["payload"]["parameters"]["workflowUrn"] == WF
+
+
+def test_cli_triggers_and_event_rule_validation(tmp_path, capsys):
+    assert cli.main(["triggers"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["categories"]["TAG"]["operations"] == ["ADD", "REMOVE"] and "schemaField" in out["entityTypes"]
+
+    import pathlib
+
+    example = pathlib.Path(__file__).resolve().parents[1] / "examples" / "event-rules.yaml"
+    assert cli.main(["validate", str(example)]) == 0
+    captured = capsys.readouterr()
+    assert "3 rule(s) — 0 workflow, 3 event" in captured.out and "WARNING" not in captured.err
+
+    odd = tmp_path / "odd.json"
+    odd.write_text(json.dumps({"schemaVersion": 1, "rules": [
+        {"id": "x", "on": {"type": "event", "category": "TAG", "operations": ["MODIFY"], "entityTypes": ["spaceship"]}, "steps": []},
+        {"id": "y", "on": {"type": "event", "category": "MYSTERY"}, "steps": []},
+    ]}))
+    assert cli.main(["validate", str(odd)]) == 0  # advice only
+    err = capsys.readouterr().err
+    assert "not known to emit operation 'MODIFY'" in err and "unknown entity type 'spaceship'" in err and "category 'MYSTERY'" in err

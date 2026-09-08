@@ -2,5 +2,6 @@
 artifacts:
 	python3 -c "import json; from datahub_workflow_actions.contract import rules_json_schema; print(json.dumps(rules_json_schema(), indent=2))" > contracts/rules.v1.schema.json
 	python3 -c "import json; from datahub_workflow_actions.steps import catalog; print(json.dumps(catalog(), indent=2))" > contracts/catalog.json
+	python3 -c "import json; from datahub_workflow_actions.contract import triggers_catalog; print(json.dumps(triggers_catalog(), indent=2))" > contracts/triggers.json
 test:
 	python3 -m pytest -q

@@ -1,0 +1,264 @@
+{
+  "categories": {
+    "TAG": {
+      "label": "Tags",
+      "operations": [
+        "ADD",
+        "REMOVE"
+      ],
+      "modifier": "tag",
+      "parameterKeys": [
+        "tagUrn",
+        "context",
+        "sourceDetails",
+        "parentUrn",
+        "fieldPath"
+      ],
+      "changeKeys": [
+        "tag",
+        "parent",
+        "field"
+      ],
+      "notes": "Field tags arrive with entityType schemaField and parentUrn = the dataset."
+    },
+    "GLOSSARY_TERM": {
+      "label": "Glossary terms",
+      "operations": [
+        "ADD",
+        "REMOVE"
+      ],
+      "modifier": "term",
+      "parameterKeys": [
+        "termUrn",
+        "context",
+        "sourceDetails",
+        "parentUrn",
+        "fieldPath"
+      ],
+      "changeKeys": [
+        "term",
+        "parent",
+        "field"
+      ]
+    },
+    "OWNERSHIP": {
+      "label": "Owners",
+      "operations": [
+        "ADD",
+        "REMOVE"
+      ],
+      "modifier": "owner",
+      "parameterKeys": [
+        "ownerUrn",
+        "ownerType",
+        "ownerTypeUrn",
+        "sourceDetails"
+      ],
+      "changeKeys": [
+        "owner",
+        "ownerType",
+        "ownerTypeUrn"
+      ]
+    },
+    "DOMAIN": {
+      "label": "Domains",
+      "operations": [
+        "ADD",
+        "REMOVE"
+      ],
+      "modifier": "domain",
+      "parameterKeys": [
+        "domainUrn",
+        "context",
+        "sourceDetails"
+      ],
+      "changeKeys": [
+        "domain"
+      ]
+    },
+    "DEPRECATION": {
+      "label": "Deprecation",
+      "operations": [
+        "MODIFY"
+      ],
+      "modifier": null,
+      "parameterKeys": [
+        "status",
+        "note",
+        "timestamp"
+      ],
+      "changeKeys": [
+        "status",
+        "note"
+      ],
+      "notes": "parameters.status is DEPRECATED or ACTIVE."
+    },
+    "LIFECYCLE": {
+      "label": "Asset lifecycle",
+      "operations": [
+        "CREATE",
+        "HARD_DELETE",
+        "SOFT_DELETE",
+        "REINSTATE",
+        "PENDING",
+        "COMPLETED",
+        "MODIFY"
+      ],
+      "modifier": null,
+      "parameterKeys": [
+        "actionRequestType",
+        "resourceUrn",
+        "workflowUrn",
+        "result"
+      ],
+      "changeKeys": [],
+      "notes": "CREATE/HARD_DELETE for dataset, container, chart, dashboard, dataFlow, dataJob, domain, tag, glossaryTerm, corpGroup; SOFT_DELETE/REINSTATE for any asset; actionRequest lifecycle for proposals and workflow requests."
+    },
+    "STRUCTURED_PROPERTY": {
+      "label": "Structured properties",
+      "operations": [
+        "ADD",
+        "REMOVE",
+        "MODIFY"
+      ],
+      "modifier": "property",
+      "parameterKeys": [
+        "propertyUrn",
+        "propertyValues",
+        "sourceDetails"
+      ],
+      "changeKeys": [
+        "property",
+        "values"
+      ]
+    },
+    "TECHNICAL_SCHEMA": {
+      "label": "Schema",
+      "operations": [
+        "ADD",
+        "REMOVE",
+        "MODIFY"
+      ],
+      "modifier": "schemaField",
+      "parameterKeys": [
+        "fieldPath",
+        "fieldUrn",
+        "nullable",
+        "modificationCategory"
+      ],
+      "changeKeys": [
+        "field",
+        "fieldUrn",
+        "modificationCategory",
+        "nullable"
+      ],
+      "notes": "modificationCategory is RENAME, TYPE_CHANGE or OTHER."
+    },
+    "DOCUMENTATION": {
+      "label": "Documentation",
+      "operations": [
+        "ADD",
+        "REMOVE",
+        "MODIFY"
+      ],
+      "modifier": null,
+      "parameterKeys": [
+        "description",
+        "previousDescription",
+        "fieldPath",
+        "parentUrn"
+      ],
+      "changeKeys": [
+        "description",
+        "previousDescription",
+        "field",
+        "parent"
+      ]
+    },
+    "BUSINESS_ATTRIBUTE": {
+      "label": "Business attributes",
+      "operations": [
+        "ADD",
+        "REMOVE"
+      ],
+      "modifier": "businessAttribute",
+      "parameterKeys": [
+        "businessAttributeUrn"
+      ],
+      "changeKeys": [
+        "businessAttribute"
+      ]
+    },
+    "RUN": {
+      "label": "Runs",
+      "operations": [
+        "STARTED",
+        "COMPLETED"
+      ],
+      "modifier": null,
+      "parameterKeys": [
+        "runResult",
+        "runId",
+        "asserteeUrn",
+        "assertionResult",
+        "attempt",
+        "parentInstanceUrn",
+        "dataFlowUrn",
+        "dataJobUrn"
+      ],
+      "changeKeys": [
+        "result",
+        "runId",
+        "assertee"
+      ],
+      "notes": "Assertions emit COMPLETED with assertionResult SUCCESS / FAILURE / ERROR; pipeline runs (dataProcessInstance) emit STARTED and COMPLETED."
+    },
+    "INCIDENT": {
+      "label": "Incidents",
+      "operations": [
+        "ACTIVE",
+        "RESOLVED"
+      ],
+      "modifier": null,
+      "parameterKeys": [
+        "entities",
+        "type",
+        "title",
+        "description",
+        "stage",
+        "message"
+      ],
+      "changeKeys": [
+        "incident"
+      ],
+      "notes": "DataHub Cloud only."
+    }
+  },
+  "entityTypes": [
+    "dataset",
+    "schemaField",
+    "chart",
+    "dashboard",
+    "dataFlow",
+    "dataJob",
+    "container",
+    "glossaryTerm",
+    "glossaryNode",
+    "domain",
+    "dataProduct",
+    "tag",
+    "corpuser",
+    "corpGroup",
+    "mlModel",
+    "mlModelGroup",
+    "mlFeature",
+    "mlFeatureTable",
+    "mlPrimaryKey",
+    "notebook",
+    "assertion",
+    "incident",
+    "dataProcessInstance",
+    "actionRequest",
+    "businessAttribute"
+  ]
+}

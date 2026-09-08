@@ -23,6 +23,64 @@
       },
       "type": "object"
     },
+    "EventTrigger": {
+      "additionalProperties": false,
+      "description": "Fires on any DataHub EntityChangeEvent (\u00a721): a category of change, optionally narrowed by\noperation, entity type, the event's ``modifier`` (the tag / term / owner / domain / property\nurn) and matches on its ``parameters``. Categories and operations are free strings \u2014 GMS adds\nthem without a release of this package; see ``KNOWN_TRIGGERS`` for the published vocabulary.",
+      "properties": {
+        "type": {
+          "const": "event",
+          "type": "string"
+        },
+        "category": {
+          "description": "TAG, GLOSSARY_TERM, OWNERSHIP, DOMAIN, DEPRECATION, LIFECYCLE, STRUCTURED_PROPERTY, TECHNICAL_SCHEMA, DOCUMENTATION, BUSINESS_ATTRIBUTE, RUN, INCIDENT, \u2026",
+          "minLength": 1,
+          "type": "string"
+        },
+        "operations": {
+          "description": "ADD, REMOVE, MODIFY, CREATE, HARD_DELETE, SOFT_DELETE, REINSTATE, STARTED, COMPLETED, ACTIVE, RESOLVED, \u2026 Empty = any.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "entityTypes": {
+          "description": "Entity names as the event carries them (dataset, schemaField, container, \u2026). Empty = any.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Match on the event's modifier \u2014 the tag / term / owner / domain / property urn."
+        },
+        "parameters": {
+          "description": "All must hold; `field` is a dotted path into the event's parameters (e.g. status, modificationCategory).",
+          "items": {
+            "$ref": "#/$defs/Filter"
+          },
+          "type": "array"
+        },
+        "ignoreOwnChanges": {
+          "default": true,
+          "description": "Skip events caused by this engine's own steps, so a rule cannot re-trigger itself.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "category"
+      ],
+      "type": "object"
+    },
     "Filter": {
       "additionalProperties": false,
       "description": "One condition over a dotted path into the context document.",
@@ -158,15 +216,38 @@
           "default": null
         },
         "workflowUrn": {
-          "minLength": 1,
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Workflow triggers only."
         },
         "enabled": {
           "default": true,
           "type": "boolean"
         },
         "on": {
-          "$ref": "#/$defs/Trigger"
+          "discriminator": {
+            "mapping": {
+              "event": "#/$defs/EventTrigger",
+              "workflow": "#/$defs/WorkflowTrigger"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/WorkflowTrigger"
+            },
+            {
+              "$ref": "#/$defs/EventTrigger"
+            }
+          ]
         },
         "when": {
           "anyOf": [
@@ -198,7 +279,6 @@
       },
       "required": [
         "id",
-        "workflowUrn",
         "on"
       ],
       "type": "object"
@@ -340,10 +420,51 @@
       ],
       "type": "object"
     },
-    "Trigger": {
+    "ValueMatch": {
       "additionalProperties": false,
-      "description": "Which lifecycle event fires the rule.",
+      "description": "A match on a single value (the event's ``modifier``): same conditions as a Filter, no path.",
       "properties": {
+        "condition": {
+          "default": "EQUAL",
+          "enum": [
+            "EQUAL",
+            "CONTAIN",
+            "START_WITH",
+            "END_WITH",
+            "EXISTS",
+            "IN",
+            "GREATER_THAN",
+            "LESS_THAN",
+            "MATCHES"
+          ],
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "negated": {
+          "default": false,
+          "type": "boolean"
+        },
+        "caseInsensitive": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "WorkflowTrigger": {
+      "additionalProperties": false,
+      "description": "Fires on a workflow request's lifecycle (created / step decided / completed).",
+      "properties": {
+        "type": {
+          "const": "workflow",
+          "default": "workflow",
+          "type": "string"
+        },
         "operation": {
           "enum": [
             "CREATE",

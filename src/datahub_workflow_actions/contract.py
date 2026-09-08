@@ -5,7 +5,7 @@ vendors; ``load_rules()`` accepts the recipe root, a bare config, or a list."""
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -25,9 +25,10 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Trigger(StrictModel):
-    """Which lifecycle event fires the rule."""
+class WorkflowTrigger(StrictModel):
+    """Fires on a workflow request's lifecycle (created / step decided / completed)."""
 
+    type: Literal["workflow"] = "workflow"
     operation: LifecycleOperation
     result: Optional[LifecycleResult] = Field(
         None, description="COMPLETED: the request outcome. MODIFY: the step decision."
@@ -35,13 +36,32 @@ class Trigger(StrictModel):
     stepId: Optional[str] = Field(None, description="MODIFY only: restrict to one approval step.")
 
     @model_validator(mode="after")
-    def _check(self) -> "Trigger":
+    def _check(self) -> "WorkflowTrigger":
         if self.operation == "COMPLETED" and self.result is None:
             raise ValueError("a COMPLETED trigger needs a result (ACCEPTED / REJECTED / CANCELLED)")
         if self.stepId and self.operation != "MODIFY":
             raise ValueError("stepId only applies to MODIFY (step decided) triggers")
         if self.operation in ("CREATE", "PENDING") and self.result is not None:
             raise ValueError(f"a {self.operation} trigger has no result")
+        return self
+
+
+# Back-compat name: the workflow trigger was the only trigger before §21.
+Trigger = WorkflowTrigger
+
+
+class ValueMatch(StrictModel):
+    """A match on a single value (the event's ``modifier``): same conditions as a Filter, no path."""
+
+    condition: FilterCondition = "EQUAL"
+    values: List[str] = Field(default_factory=list)
+    negated: bool = False
+    caseInsensitive: bool = False
+
+    @model_validator(mode="after")
+    def _check(self) -> "ValueMatch":
+        if self.condition != "EXISTS" and not any(v.strip() for v in self.values):
+            raise ValueError("a modifier match needs at least one value")
         return self
 
 
@@ -59,6 +79,31 @@ class Filter(StrictModel):
         if self.condition != "EXISTS" and not any(v.strip() for v in self.values):
             raise ValueError(f"condition on '{self.field}' needs at least one value")
         return self
+
+
+class EventTrigger(StrictModel):
+    """Fires on any DataHub EntityChangeEvent (§21): a category of change, optionally narrowed by
+    operation, entity type, the event's ``modifier`` (the tag / term / owner / domain / property
+    urn) and matches on its ``parameters``. Categories and operations are free strings — GMS adds
+    them without a release of this package; see ``KNOWN_TRIGGERS`` for the published vocabulary."""
+
+    type: Literal["event"]
+    category: str = Field(min_length=1, description="TAG, GLOSSARY_TERM, OWNERSHIP, DOMAIN, DEPRECATION, LIFECYCLE, STRUCTURED_PROPERTY, TECHNICAL_SCHEMA, DOCUMENTATION, BUSINESS_ATTRIBUTE, RUN, INCIDENT, …")
+    operations: List[str] = Field(default_factory=list, description="ADD, REMOVE, MODIFY, CREATE, HARD_DELETE, SOFT_DELETE, REINSTATE, STARTED, COMPLETED, ACTIVE, RESOLVED, … Empty = any.")
+    entityTypes: List[str] = Field(default_factory=list, description="Entity names as the event carries them (dataset, schemaField, container, …). Empty = any.")
+    modifier: Optional[ValueMatch] = Field(None, description="Match on the event's modifier — the tag / term / owner / domain / property urn.")
+    parameters: List[Filter] = Field(default_factory=list, description="All must hold; `field` is a dotted path into the event's parameters (e.g. status, modificationCategory).")
+    ignoreOwnChanges: bool = Field(True, description="Skip events caused by this engine's own steps, so a rule cannot re-trigger itself.")
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "EventTrigger":
+        self.category = self.category.strip().upper()
+        self.operations = [op.strip().upper() for op in self.operations if op.strip()]
+        self.entityTypes = [t.strip() for t in self.entityTypes if t.strip()]
+        return self
+
+
+RuleTrigger = Annotated[Union[WorkflowTrigger, EventTrigger], Field(discriminator="type")]
 
 
 class FilterGroup(StrictModel):
@@ -117,15 +162,31 @@ class Rule(StrictModel):
     id: str = Field(min_length=1)
     name: Optional[str] = None
     description: Optional[str] = None
-    workflowUrn: str = Field(min_length=1)
+    workflowUrn: Optional[str] = Field(None, min_length=1, description="Workflow triggers only.")
     enabled: bool = True
-    on: Trigger
+    on: RuleTrigger
     when: Optional[FilterGroup] = None
     steps: List[Step] = Field(default_factory=list)
     onError: StepErrorPolicy = Field("fail", description="Default error policy for steps.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _default_trigger_type(cls, data: Any) -> Any:
+        # Recipes written before §21 have no `type` on the trigger: they are workflow triggers.
+        if isinstance(data, dict) and isinstance(data.get("on"), dict) and "type" not in data["on"]:
+            data = {**data, "on": {**data["on"], "type": "workflow"}}
+        return data
+
+    @property
+    def trigger_type(self) -> str:
+        return self.on.type
+
     @model_validator(mode="after")
     def _check(self) -> "Rule":
+        if self.on.type == "workflow" and not self.workflowUrn:
+            raise ValueError(f"rule '{self.id}': a workflow trigger needs workflowUrn")
+        if self.on.type != "workflow" and self.workflowUrn:
+            raise ValueError(f"rule '{self.id}': {self.on.type} rules are scoped by entityTypes/when, not workflowUrn")
         seen = set()
         for step in self.steps:
             if step.id in seen:
@@ -157,6 +218,41 @@ class RulesConfig(BaseModel):
 
     def rules_for(self, workflow_urn: str) -> List[Rule]:
         return [rule for rule in self.rules if rule.workflowUrn == workflow_urn]
+
+    def workflow_rules(self) -> List[Rule]:
+        return [rule for rule in self.rules if rule.on.type == "workflow"]
+
+    def event_rules(self) -> List[Rule]:
+        return [rule for rule in self.rules if rule.on.type == "event"]
+
+
+# The EntityChangeEvent vocabulary GMS emits today (verified against the DataHub fork's
+# EntityChangeEventGenerators). Published as contracts/triggers.json so the MFE's presets and
+# the `validate` command share one source of truth. Free strings in the contract; this is advice.
+KNOWN_TRIGGERS: Dict[str, Dict[str, Any]] = {
+    "TAG": {"label": "Tags", "operations": ["ADD", "REMOVE"], "modifier": "tag", "parameterKeys": ["tagUrn", "context", "sourceDetails", "parentUrn", "fieldPath"], "changeKeys": ["tag", "parent", "field"], "notes": "Field tags arrive with entityType schemaField and parentUrn = the dataset."},
+    "GLOSSARY_TERM": {"label": "Glossary terms", "operations": ["ADD", "REMOVE"], "modifier": "term", "parameterKeys": ["termUrn", "context", "sourceDetails", "parentUrn", "fieldPath"], "changeKeys": ["term", "parent", "field"]},
+    "OWNERSHIP": {"label": "Owners", "operations": ["ADD", "REMOVE"], "modifier": "owner", "parameterKeys": ["ownerUrn", "ownerType", "ownerTypeUrn", "sourceDetails"], "changeKeys": ["owner", "ownerType", "ownerTypeUrn"]},
+    "DOMAIN": {"label": "Domains", "operations": ["ADD", "REMOVE"], "modifier": "domain", "parameterKeys": ["domainUrn", "context", "sourceDetails"], "changeKeys": ["domain"]},
+    "DEPRECATION": {"label": "Deprecation", "operations": ["MODIFY"], "modifier": None, "parameterKeys": ["status", "note", "timestamp"], "changeKeys": ["status", "note"], "notes": "parameters.status is DEPRECATED or ACTIVE."},
+    "LIFECYCLE": {"label": "Asset lifecycle", "operations": ["CREATE", "HARD_DELETE", "SOFT_DELETE", "REINSTATE", "PENDING", "COMPLETED", "MODIFY"], "modifier": None, "parameterKeys": ["actionRequestType", "resourceUrn", "workflowUrn", "result"], "changeKeys": [], "notes": "CREATE/HARD_DELETE for dataset, container, chart, dashboard, dataFlow, dataJob, domain, tag, glossaryTerm, corpGroup; SOFT_DELETE/REINSTATE for any asset; actionRequest lifecycle for proposals and workflow requests."},
+    "STRUCTURED_PROPERTY": {"label": "Structured properties", "operations": ["ADD", "REMOVE", "MODIFY"], "modifier": "property", "parameterKeys": ["propertyUrn", "propertyValues", "sourceDetails"], "changeKeys": ["property", "values"]},
+    "TECHNICAL_SCHEMA": {"label": "Schema", "operations": ["ADD", "REMOVE", "MODIFY"], "modifier": "schemaField", "parameterKeys": ["fieldPath", "fieldUrn", "nullable", "modificationCategory"], "changeKeys": ["field", "fieldUrn", "modificationCategory", "nullable"], "notes": "modificationCategory is RENAME, TYPE_CHANGE or OTHER."},
+    "DOCUMENTATION": {"label": "Documentation", "operations": ["ADD", "REMOVE", "MODIFY"], "modifier": None, "parameterKeys": ["description", "previousDescription", "fieldPath", "parentUrn"], "changeKeys": ["description", "previousDescription", "field", "parent"]},
+    "BUSINESS_ATTRIBUTE": {"label": "Business attributes", "operations": ["ADD", "REMOVE"], "modifier": "businessAttribute", "parameterKeys": ["businessAttributeUrn"], "changeKeys": ["businessAttribute"]},
+    "RUN": {"label": "Runs", "operations": ["STARTED", "COMPLETED"], "modifier": None, "parameterKeys": ["runResult", "runId", "asserteeUrn", "assertionResult", "attempt", "parentInstanceUrn", "dataFlowUrn", "dataJobUrn"], "changeKeys": ["result", "runId", "assertee"], "notes": "Assertions emit COMPLETED with assertionResult SUCCESS / FAILURE / ERROR; pipeline runs (dataProcessInstance) emit STARTED and COMPLETED."},
+    "INCIDENT": {"label": "Incidents", "operations": ["ACTIVE", "RESOLVED"], "modifier": None, "parameterKeys": ["entities", "type", "title", "description", "stage", "message"], "changeKeys": ["incident"], "notes": "DataHub Cloud only."},
+}
+
+KNOWN_ENTITY_TYPES: List[str] = [
+    "dataset", "schemaField", "chart", "dashboard", "dataFlow", "dataJob", "container", "glossaryTerm", "glossaryNode",
+    "domain", "dataProduct", "tag", "corpuser", "corpGroup", "mlModel", "mlModelGroup", "mlFeature", "mlFeatureTable",
+    "mlPrimaryKey", "notebook", "assertion", "incident", "dataProcessInstance", "actionRequest", "businessAttribute",
+]
+
+
+def triggers_catalog() -> Dict[str, Any]:
+    return {"categories": KNOWN_TRIGGERS, "entityTypes": KNOWN_ENTITY_TYPES}
 
 
 def load_rules(obj: Any) -> RulesConfig:

@@ -121,3 +121,76 @@ def test_published_schema_normalises_version_dependent_details():
             "items": {"type": "array", "items": {"additionalProperties": False, "type": "object"}},
         }
     }
+
+
+# ---- §21 event triggers -----------------------------------------------------------
+
+
+def test_legacy_triggers_parse_as_workflow_triggers_and_round_trip():
+    from datahub_workflow_actions.contract import Rule, WorkflowTrigger
+
+    rule = Rule.model_validate(RULE)
+    assert isinstance(rule.on, WorkflowTrigger) and rule.on.type == "workflow" and rule.trigger_type == "workflow"
+    dumped = rule.model_dump(exclude_none=True)
+    assert dumped["on"]["type"] == "workflow" and dumped["workflowUrn"] == RULE["workflowUrn"]
+    assert Rule.model_validate(dumped).model_dump() == rule.model_dump()  # stable under re-parse
+
+
+def test_event_trigger_parses_normalises_and_rejects_a_workflow_urn():
+    from datahub_workflow_actions.contract import EventTrigger, Rule
+
+    raw = {
+        "id": "pii",
+        "on": {
+            "type": "event",
+            "category": "tag",
+            "operations": ["add"],
+            "entityTypes": ["dataset", "schemaField"],
+            "modifier": {"values": ["urn:li:tag:pii"]},
+            "parameters": [{"field": "context", "condition": "EXISTS"}],
+        },
+        "steps": [],
+    }
+    rule = Rule.model_validate(raw)
+    assert isinstance(rule.on, EventTrigger)
+    assert rule.on.category == "TAG" and rule.on.operations == ["ADD"] and rule.on.entityTypes == ["dataset", "schemaField"]
+    assert rule.on.modifier.condition == "EQUAL" and rule.on.ignoreOwnChanges is True and rule.workflowUrn is None
+    with pytest.raises(ValueError, match="not workflowUrn"):
+        Rule.model_validate({**raw, "workflowUrn": "urn:li:actionWorkflow:w"})
+    with pytest.raises(ValueError, match="needs workflowUrn"):
+        Rule.model_validate({"id": "w", "on": {"operation": "CREATE"}, "steps": []})
+    with pytest.raises(ValueError):
+        Rule.model_validate({**raw, "on": {**raw["on"], "type": "webhook"}})
+    with pytest.raises(ValueError, match="modifier match needs"):
+        Rule.model_validate({**raw, "on": {**raw["on"], "modifier": {"values": []}}})
+    with pytest.raises(ValueError):
+        Rule.model_validate({**raw, "on": {**raw["on"], "category": ""}})
+
+
+def test_rules_config_splits_workflow_and_event_rules():
+    from datahub_workflow_actions.contract import RulesConfig
+
+    cfg = RulesConfig.model_validate(
+        {"schemaVersion": 1, "rules": [RULE, {"id": "e", "on": {"type": "event", "category": "OWNERSHIP"}, "steps": []}]}
+    )
+    assert [r.id for r in cfg.workflow_rules()] == [RULE["id"]]
+    assert [r.id for r in cfg.event_rules()] == ["e"]
+    assert cfg.rules_for(RULE["workflowUrn"]) == cfg.workflow_rules()
+
+
+def test_schema_publishes_the_trigger_union_and_optional_workflow_urn():
+    from datahub_workflow_actions.contract import KNOWN_TRIGGERS, rules_json_schema, triggers_catalog
+
+    schema = rules_json_schema()
+    rule = schema["$defs"]["Rule"]
+    assert "workflowUrn" not in rule["required"] and "on" in rule["required"]
+    on = rule["properties"]["on"]
+    assert on["discriminator"]["propertyName"] == "type"
+    assert set(on["discriminator"]["mapping"]) == {"workflow", "event"}
+    assert {"WorkflowTrigger", "EventTrigger", "ValueMatch"} <= set(schema["$defs"])
+    assert schema["$defs"]["WorkflowTrigger"]["properties"]["type"]["default"] == "workflow"
+    assert "type" not in schema["$defs"]["WorkflowTrigger"].get("required", [])  # legacy recipes omit it
+    assert "type" in schema["$defs"]["EventTrigger"]["required"]
+    catalog = triggers_catalog()
+    assert set(catalog["categories"]) == set(KNOWN_TRIGGERS) and "dataset" in catalog["entityTypes"]
+    assert catalog["categories"]["OWNERSHIP"]["operations"] == ["ADD", "REMOVE"]

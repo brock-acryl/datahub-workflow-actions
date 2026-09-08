@@ -271,3 +271,79 @@ def test_steps_without_bulk_param_never_batch(fake_graph):
     )
     run = _engine_with(fake_graph).run_rule(rule, _ctx(["a", "b"]))
     assert run.steps[0].reason == "2 item(s)" and len(run.steps[0].items) == 2
+
+
+# ---- §21: event trigger matching ------------------------------------------------
+
+
+def _event_rule(**trigger):
+    from datahub_workflow_actions.contract import Rule
+
+    return Rule.model_validate({"id": "e", "on": {"type": "event", "category": "TAG", **trigger}, "steps": []})
+
+
+def _view(**overrides):
+    view = {
+        "type": "EntityChangeEvent",
+        "entityType": "dataset",
+        "entityUrn": DATASET,
+        "category": "TAG",
+        "operation": "ADD",
+        "modifier": "urn:li:tag:pii",
+        "parameters": {"tagUrn": "urn:li:tag:pii", "context": "{}"},
+        "actor": "urn:li:corpuser:jdoe",
+    }
+    view.update(overrides)
+    return view
+
+
+@pytest.mark.parametrize(
+    "trigger, view, expected",
+    [
+        ({}, {}, None),
+        ({"operations": ["ADD"], "entityTypes": ["dataset"]}, {}, None),
+        ({"entityTypes": ["DATASET"]}, {}, None),  # entity types compare case-insensitively
+        ({}, {"category": "OWNERSHIP"}, "category OWNERSHIP != TAG"),
+        ({"operations": ["REMOVE"]}, {}, "operation ADD not in ['REMOVE']"),
+        ({"entityTypes": ["schemaField"]}, {}, "entity type dataset not in ['schemaField']"),
+        ({"modifier": {"values": ["urn:li:tag:pii"]}}, {}, None),
+        ({"modifier": {"values": ["urn:li:tag:other"]}}, {}, "modifier urn:li:tag:pii does not match"),
+        ({"modifier": {"condition": "IN", "values": ["urn:li:tag:other", "urn:li:tag:pii"]}}, {}, None),
+        ({"modifier": {"condition": "START_WITH", "values": ["urn:li:tag:p"]}}, {}, None),
+        ({"modifier": {"values": ["urn:li:tag:pii"], "negated": True}}, {}, "modifier urn:li:tag:pii does not match"),
+        ({"modifier": {"condition": "EXISTS"}}, {"modifier": None}, "modifier None does not match"),
+        ({"parameters": [{"field": "context", "condition": "EXISTS"}]}, {}, None),
+        ({"parameters": [{"field": "tagUrn", "values": ["urn:li:tag:pii"]}, {"field": "context", "values": ["nope"]}]}, {}, "parameter context does not match"),
+        ({"category": "DEPRECATION", "operations": ["MODIFY"], "parameters": [{"field": "status", "values": ["DEPRECATED"]}]},
+         {"category": "DEPRECATION", "operation": "MODIFY", "modifier": None, "parameters": {"status": "DEPRECATED"}}, None),
+        ({"category": "DEPRECATION", "operations": ["MODIFY"], "parameters": [{"field": "status", "values": ["DEPRECATED"]}]},
+         {"category": "DEPRECATION", "operation": "MODIFY", "modifier": None, "parameters": {"status": "ACTIVE"}}, "parameter status does not match"),
+    ],
+)
+def test_event_trigger_matching_table(trigger, view, expected):
+    from datahub_workflow_actions.engine import event_trigger_matches
+
+    assert event_trigger_matches(_event_rule(**trigger).on, _view(**view)) == expected
+
+
+def test_event_trigger_own_actor_guard():
+    from datahub_workflow_actions.engine import event_trigger_matches
+
+    me = "urn:li:corpuser:__datahub_system"
+    assert event_trigger_matches(_event_rule().on, _view(actor=me), own_actor=me) == f"own change (actor {me})"
+    assert event_trigger_matches(_event_rule().on, _view(actor=me), own_actor=None) is None  # guard needs a known actor
+    assert event_trigger_matches(_event_rule(ignoreOwnChanges=False).on, _view(actor=me), own_actor=me) is None
+    assert event_trigger_matches(_event_rule().on, _view(), own_actor=me) is None
+
+
+def test_trigger_matches_dispatches_on_trigger_type(context):
+    from datahub_workflow_actions.engine import trigger_matches
+
+    event_rule = _event_rule()
+    assert trigger_matches(event_rule, {"event": _view(), "engine": {"actor": "urn:li:corpuser:x"}}) is None
+    # a workflow lifecycle context is a LIFECYCLE change event — it simply is not a TAG event
+    assert trigger_matches(event_rule, context) == "category LIFECYCLE != TAG"
+    # a workflow rule against an event context still fails on the workflow gate
+    from datahub_workflow_actions.contract import Rule
+
+    assert trigger_matches(Rule.model_validate(rule()), {"event": _view()}) == "event has no workflow urn"

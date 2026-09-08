@@ -1,0 +1,65 @@
+# §21 — rules triggered by DataHub change events, not by a workflow.
+# Validate with:  workflow-actions validate examples/event-rules.yaml
+source:
+  type: datahub-workflow-actions
+  config:
+    schemaVersion: 1
+    rules:
+      - id: pii-tag-adds-steward
+        name: PII tag adds the data steward
+        description: When a dataset or column is tagged PII, make the governance group a steward and post to Slack.
+        on:
+          type: event
+          category: TAG
+          operations: [ADD]
+          entityTypes: [dataset, schemaField]
+          modifier: { values: ["urn:li:tag:pii"] }
+        when:
+          operator: AND
+          filters:
+            - { field: entity.platform, condition: IN, values: [snowflake, databricks] }
+        steps:
+          - id: steward
+            type: add_owner
+            params:
+              entity: "{{ entity.parent.urn if entity.parent else entity.urn }}"
+              owner: urn:li:corpGroup:governance
+              ownershipType: DATA_STEWARD
+          - id: notify
+            type: slack
+            params:
+              channel: "#data-governance"
+              text: "{{ change.subject.name }} was tagged on {{ entity.name }} by {{ actor.username }}"
+
+      - id: deprecation-notifies-owners
+        name: Deprecation notifies owners
+        on:
+          type: event
+          category: DEPRECATION
+          operations: [MODIFY]
+          parameters:
+            - { field: status, values: [DEPRECATED] }
+        steps:
+          - id: email
+            type: email
+            params:
+              to: "{{ entity.owners | join(', ') }}"
+              subject: "{{ entity.name }} was deprecated"
+              text: "{{ actor.username }} deprecated {{ entity.name }}: {{ change.note }}"
+
+      - id: propagate-domain-to-downstream
+        name: Propagate domain downstream
+        description: One hop downstream inherits the domain. Ignores the engine's own changes so it cannot loop.
+        on:
+          type: event
+          category: DOMAIN
+          operations: [ADD]
+          entityTypes: [dataset]
+          ignoreOwnChanges: true
+        steps:
+          - id: downstream
+            type: lineage
+            params: { entity: "{{ entity.urn }}", direction: DOWNSTREAM, hops: 1, types: [DATASET] }
+          - id: set
+            type: set_domain
+            params: { entity: "{{ steps.downstream.output.urns }}", domain: "{{ change.domain }}" }
