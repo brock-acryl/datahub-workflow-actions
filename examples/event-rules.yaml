@@ -8,7 +8,7 @@ source:
       - id: pii-tag-adds-steward
         name: PII tag adds the data steward
         description: When a dataset or column is tagged PII, make the governance group a steward and post to Slack.
-        on:
+        "on":
           type: event
           category: TAG
           operations: [ADD]
@@ -33,7 +33,7 @@ source:
 
       - id: deprecation-notifies-owners
         name: Deprecation notifies owners
-        on:
+        "on":
           type: event
           category: DEPRECATION
           operations: [MODIFY]
@@ -50,7 +50,7 @@ source:
       - id: propagate-domain-to-downstream
         name: Propagate domain downstream
         description: One hop downstream inherits the domain. Ignores the engine's own changes so it cannot loop.
-        on:
+        "on":
           type: event
           category: DOMAIN
           operations: [ADD]
