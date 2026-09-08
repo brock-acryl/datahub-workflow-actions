@@ -53,7 +53,8 @@ class WebhookParams(StepParams):
     outputs={"status": "HTTP status code", "body": "Parsed JSON body (or text)", "headers": "Response headers"},
 )
 def webhook(p: WebhookParams, ctx: RunContext) -> dict:
-    headers = _as_json(p.headers, "headers") or {}
+    # Header values must be strings: a templated `{{ n | length }}` renders as an int.
+    headers = {str(k): str(v) for k, v in (_as_json(p.headers, "headers") or {}).items()}
     body = p.body
     kwargs: Dict[str, Any] = {"headers": headers, "timeout": ctx.timeout or 30}
     if body not in (None, ""):

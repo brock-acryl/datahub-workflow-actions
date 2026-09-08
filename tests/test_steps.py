@@ -126,3 +126,15 @@ def test_batch_mutations_chunk_large_lists(fake_graph):
     out = run("add_tag", {"entity": urns, "tag": "urn:li:tag:a"}, RunContext(graph=fake_graph))
     assert out["chunks"] == 2 and len(out["results"]) == 2
     assert [len(v["input"]["resources"]) for _, v in fake_graph.calls] == [BATCH_CHUNK, 5]
+
+
+def test_webhook_headers_are_always_strings():
+    """A templated header like `{{ urns | length }}` renders as an int; requests rejects non-string headers."""
+    import responses
+
+    with responses.RequestsMock() as mock:
+        mock.add(responses.GET, "https://hooks.example/count", json={"ok": True}, status=200)
+        out = run("webhook", {"url": "https://hooks.example/count", "method": "GET", "headers": {"X-Count": 5, "X-Tick": "2026-03-01"}}, RunContext())
+        assert out["status"] == 200
+        sent = mock.calls[0].request.headers
+        assert sent["X-Count"] == "5" and sent["X-Tick"] == "2026-03-01"

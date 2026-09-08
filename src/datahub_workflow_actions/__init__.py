@@ -11,4 +11,4 @@ templated parameters (``templating``) and runs the steps (``engine`` +
 from datahub_workflow_actions.contract import SCHEMA_VERSION, SOURCE_TYPE, RulesConfig, load_rules
 
 __all__ = ["SCHEMA_VERSION", "SOURCE_TYPE", "RulesConfig", "load_rules"]
-__version__ = "0.7.0"
+__version__ = "0.7.1"
