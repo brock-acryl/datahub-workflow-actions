@@ -121,6 +121,10 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
     connections: Optional[Dict[str, Any]] = Field(None, description="Connections for `sql` steps: {name: url | {url} | {ingestionSource: urn} | {fromEntity: true}}. URLs may use ${SECRET} placeholders.")
     sqlTemplates: Optional[list] = Field(None, description="Opaque to the action: SQL statement templates managed by the MFE.")
     runHistory: Optional[Dict[str, Any]] = Field(None, description="Run history recorded to DataHub as data-process runs: {enabled: true, recordDryRuns: false}.")
+    dedupeWindowSeconds: float = Field(
+        30.0, ge=0, description="§21 Treat the same change (entity, category, operation, modifier) seen again within this many seconds as a duplicate. 0 disables."
+    )
+    limits: Optional[Dict[str, Any]] = Field(None, description="§21 Volume limits: {maxRunsPerRulePerMinute: int}. Unset = unlimited.")
 
 
 class WorkflowActionsSource(Source):  # type: ignore[misc]
@@ -206,6 +210,8 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
                     **({"statePath": self.config.statePath} if self.config.statePath else {}),
                     **({"connections": self.config.connections} if self.config.connections else {}),
                     **({"runHistory": self.config.runHistory} if self.config.runHistory else {}),
+                    "dedupeWindowSeconds": self.config.dedupeWindowSeconds,
+                    **({"limits": self.config.limits} if self.config.limits else {}),
                     "dryRun": self.config.dryRun,
                 },
             },

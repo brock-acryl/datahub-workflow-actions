@@ -111,7 +111,8 @@ def test_event_context_shape(fixtures):
     assert ctx["entity"]["name"] == "Orders" and ctx["entity"]["platform"] == "Snowflake" and ctx["entity"]["parent"] is None
     assert ctx["actor"]["username"] == "admin" and ctx["actor"]["email"] == "admin@example.com"
     assert ctx["change"]["tag"] == TAG_PII and ctx["change"]["term"] is None
-    assert ctx["change"]["subject"] == {"urn": DATASET, "type": "dataset", "name": "db.sales.orders"}
+    assert ctx["change"]["subject"] == {"urn": DATASET, "type": "dataset", "name": "Orders"}  # resolved name (E3)
+    assert ctx["entity"]["deprecated"] is False and ctx["entity"]["structuredProperties"] == {}
 
 
 def test_event_ids_are_unique_per_change_and_workflow_ids_are_unchanged():
@@ -126,7 +127,7 @@ def test_event_ids_are_unique_per_change_and_workflow_ids_are_unchanged():
 
 def test_field_tag_event_exposes_parent_and_field_path():
     ctx = build_event_context(field_tag_added_event(), StaticResolver({}))
-    assert ctx["entity"]["parent"] == {"urn": DATASET} and ctx["entity"]["fieldPath"] == "customer_email"
+    assert ctx["entity"]["parent"]["urn"] == DATASET and ctx["entity"]["fieldPath"] == "customer_email"
     assert ctx["entity"]["type"] == "schemafield"
     assert ctx["change"]["parent"] == DATASET and ctx["change"]["field"] == "customer_email"
 
@@ -165,3 +166,42 @@ def test_proposals_and_other_action_requests_go_through_the_event_path():
     assert not is_workflow_lifecycle_event(proposal)
     ctx = build_context(proposal, StaticResolver({}))
     assert "workflow" not in ctx and ctx["event"]["category"] == "LIFECYCLE" and ctx["event"]["entityType"] == "actionRequest"
+
+
+# ---------------------------------------------------------------------------
+# §21 E3 context enrichment
+# ---------------------------------------------------------------------------
+
+
+def test_column_events_resolve_the_parent_dataset(fixtures):
+    field_urn = f"urn:li:schemaField:({DATASET},customer_email)"
+    fixtures[field_urn] = {"urn": field_urn, "type": "SCHEMA_FIELD", "fieldPath": "customer_email", "parent": {"urn": DATASET, "type": "DATASET"}}
+    ctx = build_event_context(field_tag_added_event(), StaticResolver(fixtures))
+    entity = ctx["entity"]
+    assert entity["type"] == "schema_field" and entity["fieldPath"] == "customer_email" and entity["name"] == "customer_email"
+    # the parent is the fully resolved dataset (one more lookup, only for column events)
+    assert entity["parent"]["name"] == "Orders" and entity["parent"]["platform"] == "Snowflake" and entity["parent"]["owners"] == ["urn:li:corpuser:owner1", "urn:li:corpGroup:data-eng"]
+    assert entity["platform"] == "Snowflake"  # inherited from the parent
+    assert ctx["change"]["parent"] == DATASET and ctx["change"]["field"] == "customer_email"
+    assert ctx["change"]["subject"]["name"] == "customer_email"
+
+
+def test_entity_doc_exposes_deprecation_structured_properties_and_names(fixtures):
+    fixtures[DATASET]["deprecation"] = {"deprecated": True, "note": "Use v2"}
+    fixtures[DATASET]["structuredProperties"] = {"properties": [
+        {"structuredProperty": {"urn": "urn:li:structuredProperty:tier"}, "values": [{"stringValue": "gold"}]},
+        {"structuredProperty": {"urn": "urn:li:structuredProperty:retention"}, "values": [{"numberValue": 30}]},
+    ]}
+    fixtures["urn:li:tag:pii"] = {"urn": "urn:li:tag:pii", "type": "TAG", "name": "pii", "properties": {"name": "PII", "description": "Personal data"}}
+    fixtures["urn:li:structuredProperty:tier"] = {"urn": "urn:li:structuredProperty:tier", "type": "STRUCTURED_PROPERTY", "definition": {"displayName": "Tier", "qualifiedName": "io.acryl.tier"}}
+    resolver = StaticResolver(fixtures)
+    ds = build_event_context(tag_added_event(), resolver)["entity"]
+    assert ds["deprecated"] is True and ds["deprecationNote"] == "Use v2"
+    assert ds["structuredProperties"] == {"urn:li:structuredProperty:tier": ["gold"], "urn:li:structuredProperty:retention": [30]}
+    from datahub_workflow_actions.context import _entity_doc
+
+    assert _entity_doc("urn:li:tag:pii", {}, resolver)["name"] == "PII"
+    assert _entity_doc("urn:li:structuredProperty:tier", {}, resolver)["name"] == "Tier"
+    assert _entity_doc(ADMIN, {}, resolver)["name"] == "DataHub Admin"
+    # unresolved entities degrade to the urn's name
+    assert _entity_doc("urn:li:tag:unknown", {}, resolver)["name"] == "unknown"

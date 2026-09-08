@@ -221,10 +221,17 @@ def test_tag_add_fires_only_the_matching_event_rule(fake_graph):
     assert [r.ruleId for r in runs] == ["pii-term"]  # the workflow rule and the other categories are never even evaluated
     assert runs[0].fired and runs[0].status == "ok"
     assert _mutations(fake_graph) == ["batchAddTerms"]
-    # redelivery is idempotent
+    # the same change again within the dedupe window is a duplicate (E3) — no lookups, no runs
     fake_graph.calls.clear()
     runs2 = action.handle_event(tag_added_event())
-    assert runs2[0].steps[0].status == "skipped" and _mutations(fake_graph) == []
+    assert [(r.ruleId, r.fired) for r in runs2] == [("pii-term", False)] and "duplicate" in runs2[0].reason
+    assert fake_graph.calls == []
+    # with the window off, redelivery is still idempotent through the state store
+    action2 = _action(fake_graph, dedupeWindowSeconds=0)
+    action2.handle_event(tag_added_event())
+    fake_graph.calls.clear()
+    runs3 = action2.handle_event(tag_added_event())
+    assert runs3[0].steps[0].status == "skipped" and _mutations(fake_graph) == []
 
 
 def test_non_candidate_events_cost_no_graphql(fake_graph):
@@ -347,3 +354,35 @@ def test_example_event_rules_and_sample_events_stay_in_step(capsys):
         assert code == 0, (name, out)
         assert [r["ruleId"] for r in out["runs"] if r["fired"]] == fired, name
         assert all(r["status"] in ("dry-run", "not-fired") for r in out["runs"]), (name, out)
+
+
+def test_dedupe_window_and_rule_limits_are_hot_reloadable(fake_graph):
+    action = _action(fake_graph, dedupeWindowSeconds=0, limits={"maxRunsPerRulePerMinute": 2})
+    assert action.recent.enabled is False and action.limiter.max_per_minute == 2
+    fired = []
+    for i in range(4):
+        runs = action.handle_event(tag_added_event(time=1754000000000 + i))
+        fired.append(runs[0].fired)
+    assert fired == [True, True, False, False]
+    assert "rate limited" in action.handle_event(tag_added_event(time=1754000000099))[0].reason
+    # a save in the builder lifts the limit and turns the window on
+    action.apply_config({**EVENT_RULES, "dedupeWindowSeconds": 5})
+    assert action.limiter.enabled is False and action.recent.window == 5
+    assert action.handle_event(tag_added_event(time=1754000001000))[0].fired is True
+    assert action.handle_event(tag_added_event(time=1754000001001))[0].reason.startswith("duplicate")
+
+
+def test_source_passes_volume_settings_to_the_action():
+    from datahub_workflow_actions.source import WorkflowActionsSource, WorkflowActionsSourceConfig
+
+    cfg = WorkflowActionsSourceConfig.model_validate({**RULES, "dedupeWindowSeconds": 10, "limits": {"maxRunsPerRulePerMinute": 60}})
+    src = WorkflowActionsSource.__new__(WorkflowActionsSource)
+    src.config = cfg
+    from datahub_workflow_actions.contract import load_rules
+
+    src.rules = load_rules(RULES)
+    action_cfg = src.actions_pipeline_config()["action"]["config"]
+    assert action_cfg["dedupeWindowSeconds"] == 10 and action_cfg["limits"] == {"maxRunsPerRulePerMinute": 60}
+    from datahub_workflow_actions.reload import RELOADABLE_KEYS
+
+    assert "dedupeWindowSeconds" in RELOADABLE_KEYS and "limits" in RELOADABLE_KEYS

@@ -18,7 +18,8 @@ from datahub_workflow_actions.context import (
     is_workflow_lifecycle_event,
 )
 from datahub_workflow_actions.contract import EventTrigger, Rule, RulesConfig, load_rules
-from datahub_workflow_actions.engine import Engine, event_trigger_matches
+from datahub_workflow_actions.dispatch import RecentEvents, RuleRateLimiter, limits_from_config
+from datahub_workflow_actions.engine import Engine, RuleRun, event_trigger_matches
 from datahub_workflow_actions.state import InMemoryStateStore, SqliteStateStore, default_state_path
 from datahub_workflow_actions.steps import RunContext
 
@@ -116,10 +117,14 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         connections: Optional[Dict[str, Any]] = None,
         run_history: Optional[Dict[str, Any]] = None,
         own_actor: Optional[str] = None,
+        recent: Optional[RecentEvents] = None,
+        limiter: Optional[RuleRateLimiter] = None,
     ):
         self.config = config
         self.ctx = ctx
         self.index = EventIndex(config.rules)
+        self.recent = recent if recent is not None else RecentEvents()
+        self.limiter = limiter if limiter is not None else RuleRateLimiter(None)
         self._own_actor: Optional[str] = own_actor
         self._own_actor_resolved = own_actor is not None
         graph = getattr(getattr(ctx, "graph", None), "graph", None)
@@ -142,12 +147,14 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
 
     def _describe(self, config: RulesConfig, dry_run: bool) -> str:
         workflow_rules = config.workflow_rules()
-        return "%s rule(s) — %s workflow rule(s) for %s workflow(s), %s event rule(s) [%s]%s" % (
+        return "%s rule(s) — %s workflow rule(s) for %s workflow(s), %s event rule(s) [%s]; dedupe %s, %s%s" % (
             len(config.rules),
             len(workflow_rules),
             len({r.workflowUrn for r in workflow_rules}),
             len(self.index),
             self.index.describe(),
+            f"{self.recent.window:g}s" if self.recent.enabled else "off",
+            self.limiter.describe(),
             " (dry run)" if dry_run else "",
         )
 
@@ -192,6 +199,7 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         self.engine = Engine(run_context, state=self.engine.state, dry_run=dry_run)
         self.recorder = RunRecorder.from_config(graph, config_dict.get("runHistory"))
         self.index = EventIndex(new_config.rules)
+        self.recent, self.limiter = limits_from_config(config_dict)
         self.config = new_config
         logger.info("workflow-actions: applied %s", self._describe(new_config, dry_run))
 
@@ -207,6 +215,8 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
             connections=config_dict.get("connections"),
             run_history=config_dict.get("runHistory"),
             own_actor=config_dict.get("ownActor"),
+            recent=limits_from_config(config_dict)[0],
+            limiter=limits_from_config(config_dict)[1],
         )
 
     def act(self, event: Any) -> None:
@@ -233,8 +243,24 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
                 logger.debug("workflow-actions: rule %s not fired (%s)", rule_id, reason)
             if not candidates:
                 return []
+            if self.recent.duplicate(view):
+                logger.info(
+                    "workflow-actions: duplicate %s %s on %s within %gs — skipped for %s",
+                    view.get("category"), view.get("operation"), view.get("entityUrn"), self.recent.window,
+                    ", ".join(r.id for r in candidates),
+                )
+                return [RuleRun(ruleId=r.id, fired=False, reason=f"duplicate event within {self.recent.window:g}s") for r in candidates]
+            limited = [r for r in candidates if not self.limiter.allow(r.id)]
+            candidates = [r for r in candidates if r not in limited]
+            for r in limited:
+                logger.warning("workflow-actions: rule %s over its limit (%s) — skipped", r.id, self.limiter.describe())
+            if not candidates:
+                return [RuleRun(ruleId=r.id, fired=False, reason=f"rate limited ({self.limiter.describe()})") for r in limited]
             context = build_event_context(payload, self._resolver())
             context["engine"] = {"actor": self.own_actor()}
+            return self._run(config, engine, recorder, candidates, context) + [
+                RuleRun(ruleId=r.id, fired=False, reason=f"rate limited ({self.limiter.describe()})") for r in limited
+            ]
         return self._run(config, engine, recorder, candidates, context)
 
     def _resolver(self) -> Any:

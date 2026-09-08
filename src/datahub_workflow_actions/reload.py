@@ -22,7 +22,7 @@ query workflowActionsSourceRecipe($urn: String!) {
 
 # The keys of source.config the running action consumes. Anything else (kafka, executorId,
 # pipelineName, statePath, reload interval) needs a restart and is deliberately ignored here.
-RELOADABLE_KEYS = ("schemaVersion", "rules", "connections", "sqlTemplates", "runHistory", "dryRun")
+RELOADABLE_KEYS = ("schemaVersion", "rules", "connections", "sqlTemplates", "runHistory", "dryRun", "dedupeWindowSeconds", "limits")
 
 
 def parse_recipe_text(text: str) -> Dict[str, Any]:

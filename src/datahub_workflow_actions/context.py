@@ -93,21 +93,31 @@ query workflowActionsEntity($urn: String!) {
     urn type
     ... on Dataset { name properties { name description } platform { name properties { displayName } }
       tags { tags { tag { urn } } } glossaryTerms { terms { term { urn } } }
-      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } ownershipType { urn } type } } domain { domain { urn } } }
+      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } ownershipType { urn } type } } domain { domain { urn } }
+      deprecation { deprecated note decommissionTime }
+      structuredProperties { properties { structuredProperty { urn } values { ... on StringValue { stringValue } ... on NumberValue { numberValue } } } } }
     ... on Dashboard { properties { name description } platform { name } tags { tags { tag { urn } } }
-      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } }
+      deprecation { deprecated note } }
     ... on Chart { properties { name description } platform { name } tags { tags { tag { urn } } }
-      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } }
+      deprecation { deprecated note } }
     ... on Container { properties { name description } platform { name } tags { tags { tag { urn } } }
-      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+      glossaryTerms { terms { term { urn } } } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } }
+      deprecation { deprecated note } }
     ... on DataJob { properties { name description } tags { tags { tag { urn } } }
-      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } deprecation { deprecated note } }
     ... on DataFlow { properties { name description } tags { tags { tag { urn } } }
-      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+      ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } deprecation { deprecated note } }
     ... on GlossaryTerm { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
     ... on GlossaryNode { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
     ... on Domain { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
     ... on DataProduct { properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } domain { domain { urn } } }
+    ... on Tag { name properties { name description } }
+    ... on CorpUser { username properties { displayName email } }
+    ... on CorpGroup { name properties { displayName email } }
+    ... on StructuredPropertyEntity { definition { displayName qualifiedName description } }
+    ... on SchemaFieldEntity { fieldPath parent { urn type ... on Dataset { name properties { name } platform { name properties { displayName } } } } }
   }
 }"""
 
@@ -227,22 +237,76 @@ def _user_doc(urn: Optional[str], resolver: Resolver) -> Dict[str, Any]:
     }
 
 
-def _entity_doc(urn: Optional[str], event_params: Mapping[str, Any], resolver: Resolver) -> Dict[str, Any]:
+def _structured_properties(raw: Mapping[str, Any]) -> Dict[str, list]:
+    out: Dict[str, list] = {}
+    for entry in ((raw.get("structuredProperties") or {}).get("properties") or []):
+        urn = (entry.get("structuredProperty") or {}).get("urn")
+        if not urn:
+            continue
+        values = []
+        for value in entry.get("values") or []:
+            if value.get("stringValue") is not None:
+                values.append(value["stringValue"])
+            elif value.get("numberValue") is not None:
+                values.append(value["numberValue"])
+        out[urn] = values
+    return out
+
+
+def _entity_name(raw: Mapping[str, Any], urn: str, event_params: Mapping[str, Any]) -> str:
+    props = raw.get("properties") or {}
+    definition = raw.get("definition") or {}
+    return (
+        props.get("name")
+        or props.get("displayName")
+        or definition.get("displayName")
+        or definition.get("qualifiedName")
+        or raw.get("name")
+        or raw.get("username")
+        or raw.get("fieldPath")
+        or event_params.get("entityName")
+        or urn_name(urn)
+    )
+
+
+def _entity_doc(urn: Optional[str], event_params: Mapping[str, Any], resolver: Resolver, *, resolve_parent: bool = False) -> Dict[str, Any]:
     if not urn:
         return {}
     raw = resolver.get_entity(urn) or {}
     props = raw.get("properties") or {}
     platform = raw.get("platform") or {}
+    deprecation = raw.get("deprecation") or {}
+    parent_raw = raw.get("parent") if isinstance(raw.get("parent"), dict) else None
+    parent_urn = (parent_raw or {}).get("urn") or event_params.get("parentUrn")
+    parent: Optional[Dict[str, Any]] = None
+    if parent_urn:
+        if resolve_parent:
+            parent = _entity_doc(parent_urn, {}, resolver)
+        else:
+            parent_props = (parent_raw or {}).get("properties") or {}
+            parent_platform = (parent_raw or {}).get("platform") or {}
+            parent = {
+                "urn": parent_urn,
+                "type": ((parent_raw or {}).get("type") or "").lower() or None,
+                "name": parent_props.get("name") or (parent_raw or {}).get("name") or urn_name(parent_urn),
+                "platform": (parent_platform.get("properties") or {}).get("displayName") or parent_platform.get("name"),
+            }
     doc = {
         "urn": urn,
         "type": (raw.get("type") or event_params.get("entityType") or "").lower() or None,
-        "name": props.get("name") or raw.get("name") or event_params.get("entityName") or urn_name(urn),
-        "description": props.get("description"),
-        "platform": (platform.get("properties") or {}).get("displayName") or platform.get("name"),
+        "name": _entity_name(raw, urn, event_params),
+        "description": props.get("description") or (raw.get("definition") or {}).get("description"),
+        "platform": (platform.get("properties") or {}).get("displayName") or platform.get("name") or (parent or {}).get("platform"),
         "tags": [t["tag"]["urn"] for t in ((raw.get("tags") or {}).get("tags") or []) if t.get("tag")],
         "terms": [t["term"]["urn"] for t in ((raw.get("glossaryTerms") or {}).get("terms") or []) if t.get("term")],
         "owners": [o["owner"]["urn"] for o in ((raw.get("ownership") or {}).get("owners") or []) if o.get("owner")],
         "domain": ((raw.get("domain") or {}).get("domain") or {}).get("urn"),
+        "deprecated": bool(deprecation.get("deprecated")) if deprecation else False,
+        "deprecationNote": deprecation.get("note"),
+        "structuredProperties": _structured_properties(raw),
+        "parent": parent,
+        "fieldPath": raw.get("fieldPath") or event_params.get("fieldPath"),
+        "email": (props.get("email") if raw.get("type") in ("CORP_USER", "CORP_GROUP") else None),
     }
     return doc
 
@@ -349,10 +413,16 @@ def build_event_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[st
     view = event_view(event)
     params = view["parameters"]
     entity_urn = view.get("entityUrn")
-    entity = _entity_doc(entity_urn, {"entityType": view.get("entityType")}, resolver)
-    if entity:
-        entity["parent"] = {"urn": params.get("parentUrn")} if params.get("parentUrn") else None
-        entity["fieldPath"] = params.get("fieldPath")
+    is_field = str(view.get("entityType") or "").lower() == "schemafield"
+    entity = _entity_doc(
+        entity_urn,
+        {"entityType": view.get("entityType"), "parentUrn": params.get("parentUrn"), "fieldPath": params.get("fieldPath")},
+        resolver,
+        resolve_parent=is_field,  # column events: the dataset that owns the column, fully resolved
+    )
+    change = change_doc(event, params)
+    if entity.get("name"):
+        change["subject"]["name"] = entity["name"]
     return {
         "event": {
             "type": "EntityChangeEvent",
@@ -368,7 +438,7 @@ def build_event_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[st
         },
         "entity": entity,
         "actor": _user_doc(view.get("actor"), resolver),
-        "change": change_doc(event, params),
+        "change": change,
         "params": params,
     }
 

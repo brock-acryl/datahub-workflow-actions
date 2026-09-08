@@ -36,7 +36,7 @@ pip install datahub-workflow-actions          # also registers the `datahub-work
 **From an ingestion recipe (what the MFE writes)** — see `examples/recipe.yaml`. The source starts a datahub-actions pipeline
 in-process (Kafka `EntityChangeEvent_v1` → `workflow_actions`) and runs until stopped. Set the executor for the
 "Workflow Actions" ingestion source and add this package as an extra pip requirement
-(`extra_pip_requirements: ["datahub-workflow-actions==0.5.0"]`, or a wheel path/URL the executor can reach).
+(`extra_pip_requirements: ["datahub-workflow-actions==0.6.0"]`, or a wheel path/URL the executor can reach).
 Inside the executor the source takes its Kafka connection from `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`
 and its DataHub connection from the ingestion context (else `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`), so no
 connection config is needed in the recipe. If the executor cannot build dynamic venvs (dev images), install the
@@ -214,6 +214,20 @@ Run history for event rules lives under `urn:li:dataFlow:(workflow-actions,event
 (one DataJob per rule) with `triggerType=event`, `category`, `modifier` and `actorUrn`
 properties; the idempotency id is `entityUrn:category:operation:modifier:time`. Sample events
 for `simulate` are in `examples/events/`; `examples/event-rules.yaml` shows three rules.
+
+### Volume: duplicates and limits
+
+GMS can emit the same change twice (a field tag lives in both `schemaMetadata` and
+`editableSchemaMetadata`; re-ingestion replays unchanged tags). The engine treats a change with
+the same identity — entity, category, operation, modifier — seen again within
+`dedupeWindowSeconds` (default 30, `0` disables) as a duplicate and skips it, before any lookup.
+`limits.maxRunsPerRulePerMinute` caps how often one rule may fire (token bucket per rule; unset =
+unlimited), so a bulk ingest cannot fan a rule out into thousands of runs — over-limit fires are
+logged and skipped, not queued. Both settings are hot-reloadable from the recipe.
+
+Column events resolve the owning dataset as `entity.parent` (name, platform, owners, …) and
+inherit its `platform`; `entity.deprecated`, `entity.deprecationNote` and
+`entity.structuredProperties` (`{propertyUrn: [values]}`) are available on every asset.
 
 ## How the engine listens (Kafka or the DataHub Cloud Events API)
 
