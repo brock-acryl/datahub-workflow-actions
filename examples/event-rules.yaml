@@ -15,10 +15,6 @@ source:
           operations: [ADD]
           entityTypes: [dataset, schemaField]
           modifier: { values: ["urn:li:tag:pii"] }
-        when:
-          operator: AND
-          filters:
-            - { field: entity.platform, condition: IN, values: [snowflake, databricks] }
         steps:
           - id: steward
             type: add_owner
