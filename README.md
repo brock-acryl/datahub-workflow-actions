@@ -36,7 +36,7 @@ pip install datahub-workflow-actions          # also registers the `datahub-work
 **From an ingestion recipe (what the MFE writes)** — see `examples/recipe.yaml`. The source starts a datahub-actions pipeline
 in-process (Kafka `EntityChangeEvent_v1` → `workflow_actions`) and runs until stopped. Set the executor for the
 "Workflow Actions" ingestion source and add this package as an extra pip requirement
-(`extra_pip_requirements: ["datahub-workflow-actions==0.2.0"]`, or a wheel path/URL the executor can reach).
+(`extra_pip_requirements: ["datahub-workflow-actions==0.3.0"]`, or a wheel path/URL the executor can reach).
 Inside the executor the source takes its Kafka connection from `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`
 and its DataHub connection from the ingestion context (else `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`), so no
 connection config is needed in the recipe. If the executor cannot build dynamic venvs (dev images), install the
@@ -164,6 +164,22 @@ steps:
     batch: { size: 100 }
     params: { entity: "{{ item.urn }}", tag: "urn:li:tag:governed" }
 ```
+
+## Hot reload, consumer group and poll interval
+
+The engine re-reads its recipe from the ingestion source every `reloadIntervalSeconds` (default 30;
+0 disables) and swaps rules, connections, SQL templates and run-history settings **between events**
+— saving a rule in the builder is live within that interval, nothing in flight is interrupted and the
+Kafka consumer group never rebalances. A recipe that fails to parse is logged and ignored. Settings
+outside `source.config` (executor pool, package version, env vars) still need a restart.
+
+Each executor's engine uses its own Kafka consumer group, `workflow-actions-<executorId>`
+(`executorId` from the recipe, else `DATAHUB_EXECUTOR_WORKER_ID`), so two executors never split the
+event partitions between them. Override with `pipelineName`.
+
+datahub-actions' Kafka source hard-codes `max.poll.interval.ms` to 10 s; a rule running longer would
+be evicted and redelivered. The source raises it to 15 minutes via the consumer config (yours wins if
+you set it in `kafka.connection.consumer_config`).
 
 ## Run history
 

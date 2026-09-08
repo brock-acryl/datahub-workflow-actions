@@ -31,6 +31,28 @@ except ImportError:  # pragma: no cover
     MetadataWorkUnit = Any  # type: ignore[misc,assignment]
 
 
+# datahub-actions' kafka source hard-codes max.poll.interval.ms = 10 s: a rule that takes
+# longer is evicted from the consumer group mid-run and redelivered. Our pipeline runs one
+# event at a time, so the gap between polls *is* the rule's run time — allow 15 minutes.
+MAX_POLL_INTERVAL_MS = str(15 * 60 * 1000)
+DEFAULT_PIPELINE_NAME = "workflow-actions"
+
+
+def consumer_defaults() -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {"max.poll.interval.ms": MAX_POLL_INTERVAL_MS}
+    protocol = os.environ.get("KAFKA_PROPERTIES_SECURITY_PROTOCOL")
+    if protocol:
+        defaults["security.protocol"] = protocol
+    return defaults
+
+
+def with_consumer_defaults(kafka: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply our consumer defaults underneath whatever the recipe specifies."""
+    connection = dict(kafka.get("connection") or {})
+    connection["consumer_config"] = {**consumer_defaults(), **(connection.get("consumer_config") or {})}
+    return {**kafka, "connection": connection}
+
+
 def default_kafka_config() -> Dict[str, Any]:
     """datahub-actions' kafka source defaults to localhost:9092; inside an executor
     the broker and schema registry come from the environment instead."""
@@ -38,10 +60,11 @@ def default_kafka_config() -> Dict[str, Any]:
         "bootstrap": os.environ.get("KAFKA_BOOTSTRAP_SERVER", "localhost:9092"),
         "schema_registry_url": os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8081"),
     }
-    protocol = os.environ.get("KAFKA_PROPERTIES_SECURITY_PROTOCOL")
-    if protocol:
-        connection["consumer_config"] = {"security.protocol": protocol}
-    return {"connection": connection}
+    return with_consumer_defaults({"connection": connection})
+
+
+def executor_id_from_env() -> str:
+    return os.environ.get("DATAHUB_EXECUTOR_WORKER_ID") or os.environ.get("DATAHUB_EXECUTOR_ID") or "default"
 
 
 def graph_config_from_env() -> Optional[Dict[str, Any]]:
@@ -80,7 +103,14 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
     kafka: Optional[Dict[str, Any]] = Field(None, description="datahub-actions kafka source config (connection, topic_routes).")
     statePath: Optional[str] = None
     dryRun: bool = False
-    pipelineName: str = "workflow-actions"
+    pipelineName: Optional[str] = Field(
+        None,
+        description="datahub-actions pipeline name — also the Kafka consumer group. Default: workflow-actions-<executorId>, so each executor's engine gets its own group and sees every event.",
+    )
+    executorId: Optional[str] = Field(None, description="Executor pool this source runs on (the MFE writes it); falls back to DATAHUB_EXECUTOR_WORKER_ID.")
+    reloadIntervalSeconds: float = Field(
+        30.0, ge=0, description="How often the running engine re-reads its recipe from DataHub and hot-swaps rules/connections/templates. 0 disables."
+    )
     connections: Optional[Dict[str, Any]] = Field(None, description="Connections for `sql` steps: {name: url | {url} | {ingestionSource: urn} | {fromEntity: true}}. URLs may use ${SECRET} placeholders.")
     sqlTemplates: Optional[list] = Field(None, description="Opaque to the action: SQL statement templates managed by the MFE.")
     runHistory: Optional[Dict[str, Any]] = Field(None, description="Run history recorded to DataHub as data-process runs: {enabled: true, recordDryRuns: false}.")
@@ -113,11 +143,23 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
             return {k: v for k, v in out.items() if v not in (None, "", {}, [])}
         return graph_config_from_env()
 
+    def effective_pipeline_name(self) -> str:
+        """Kafka consumer group: one per executor, so two engines never split partitions."""
+        if self.config.pipelineName:
+            return self.config.pipelineName
+        return f"{DEFAULT_PIPELINE_NAME}-{self.config.executorId or executor_id_from_env()}"
+
+    def source_urn(self) -> Optional[str]:
+        """The ingestion source this recipe came from — the executor passes it as the run's pipeline_name."""
+        name = getattr(getattr(self, "ctx", None), "pipeline_name", None)
+        return name if isinstance(name, str) and name.startswith("urn:li:dataHubIngestionSource:") else None
+
     def actions_pipeline_config(self) -> Dict[str, Any]:
-        source: Dict[str, Any] = {"type": "kafka", "config": self.config.kafka or default_kafka_config()}
+        kafka = with_consumer_defaults(self.config.kafka) if self.config.kafka else default_kafka_config()
+        source: Dict[str, Any] = {"type": "kafka", "config": kafka}
         datahub = self.datahub_client_config()
         return {
-            "name": self.config.pipelineName,
+            "name": self.effective_pipeline_name(),
             **({"datahub": datahub} if datahub else {}),
             "source": source,
             "filter": {"event_type": "EntityChangeEvent_v1", "event": {"entityType": "actionRequest", "category": "LIFECYCLE"}},
@@ -147,8 +189,35 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
             (pipeline_config.get("datahub") or {}).get("server", "no DataHub"),
         )
         pipeline = Pipeline.create(pipeline_config)
-        pipeline.run()  # blocks until stopped
+        watcher = self._start_recipe_watcher(pipeline)
+        try:
+            pipeline.run()  # blocks until stopped
+        finally:
+            if watcher is not None:
+                watcher.stop()
         return iter(())
+
+    def _start_recipe_watcher(self, pipeline: Any):
+        """§18.24 hot reload: re-read this source's recipe from DataHub on a timer and swap the
+        rules / connections / SQL templates between events — no restart, nothing in flight is cut."""
+        from datahub_workflow_actions.reload import RecipeWatcher, fetch_source_config
+
+        urn = self.source_urn()
+        graph = getattr(getattr(self, "ctx", None), "graph", None)
+        action = getattr(pipeline, "action", None)
+        interval = self.config.reloadIntervalSeconds
+        if not urn or graph is None or action is None or not hasattr(action, "apply_config") or interval <= 0:
+            logger.info("workflow-actions: hot reload off (%s)", "disabled" if interval <= 0 else "no source urn / graph")
+            return None
+        watcher = RecipeWatcher(
+            fetch=lambda: fetch_source_config(graph, urn),
+            apply=action.apply_config,
+            interval_seconds=interval,
+            initial=self.config.model_dump(exclude_none=True),
+        )
+        watcher.start()
+        logger.info("workflow-actions: hot reload every %ss from %s", interval, urn)
+        return watcher
 
     def get_report(self) -> Any:
         return self.report

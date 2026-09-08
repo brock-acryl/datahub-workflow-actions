@@ -108,7 +108,9 @@ def test_source_builds_actions_pipeline_config():
 
     src.rules = load_rules(RULES)
     pipeline = src.actions_pipeline_config()
-    assert pipeline["source"] == {"type": "kafka", "config": {"connection": {"bootstrap": "kafka:9092"}}}
+    assert pipeline["source"]["type"] == "kafka"
+    assert pipeline["source"]["config"]["connection"]["bootstrap"] == "kafka:9092"
+    assert pipeline["source"]["config"]["connection"]["consumer_config"]["max.poll.interval.ms"] == "900000"
     assert pipeline["action"]["type"] == "workflow_actions" and len(pipeline["action"]["config"]["rules"]) == 2
     assert pipeline["filter"]["event"]["entityType"] == "actionRequest"
 

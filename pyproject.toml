@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "datahub-workflow-actions"
-version = "0.2.0"
+version = "0.3.0"
 description = "Generic datahub-actions action that runs declarative rules (trigger → conditions → steps) when Action Workflow requests are decided."
 readme = "README.md"
 requires-python = ">=3.9"

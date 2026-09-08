@@ -103,6 +103,34 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
             " (dry run)" if dry_run else "",
         )
 
+    def apply_config(self, config_dict: Dict[str, Any]) -> None:
+        """Hot reload (§18.24): swap rules, connections and run-history settings from a fresh
+        `source.config`. The idempotency state store is kept; an event already being handled
+        finishes with the rules it started with (handle_event snapshots them)."""
+        from datahub_workflow_actions.connections import ConnectionResolver, validate_connections
+        from datahub_workflow_actions.runs import RunRecorder
+
+        new_config = load_config(config_dict)  # raises on an invalid recipe → caller keeps the old one
+        connections = config_dict.get("connections")
+        for problem in validate_connections(connections):
+            logger.warning("workflow-actions: %s", problem)
+        graph = self.engine.run_context.graph
+        run_context = RunContext(
+            graph=graph,
+            connections=normalize_connections(connections),
+            connection_resolver=ConnectionResolver.from_config(connections, graph=graph),
+        )
+        dry_run = bool(config_dict.get("dryRun", False))
+        self.engine = Engine(run_context, state=self.engine.state, dry_run=dry_run)
+        self.recorder = RunRecorder.from_config(graph, config_dict.get("runHistory"))
+        self.config = new_config
+        logger.info(
+            "workflow-actions: applied %s rule(s) for %s workflow(s)%s",
+            len(new_config.rules),
+            len({r.workflowUrn for r in new_config.rules}),
+            " (dry run)" if dry_run else "",
+        )
+
     @classmethod
     def create(cls, config_dict: dict, ctx: Any) -> "WorkflowActionsAction":
         config_dict = config_dict or {}
@@ -124,8 +152,9 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
     def handle_event(self, payload: Dict[str, Any]) -> list:
         if not is_workflow_lifecycle_event(payload):
             return []
+        config, engine, recorder = self.config, self.engine, self.recorder  # snapshot: a reload mid-event does not mix rule sets
         workflow_urn = (payload.get("parameters") or {}).get("workflowUrn")
-        candidates = self.config.rules_for(workflow_urn) if workflow_urn else self.config.rules
+        candidates = config.rules_for(workflow_urn) if workflow_urn else config.rules
         if not candidates:
             return []
         resolver = self.resolver
@@ -137,11 +166,11 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         import time as _time
 
         started_ms = int(_time.time() * 1000)
-        runs = self.engine.run(RulesConfig(schemaVersion=self.config.schemaVersion, rules=candidates), context)
+        runs = engine.run(RulesConfig(schemaVersion=config.schemaVersion, rules=candidates), context)
         rules_by_id = {r.id: r for r in candidates}
         for run in runs:
-            if self.recorder is not None and run.fired:
-                self.recorder.record(run, rules_by_id.get(run.ruleId), context, started_ms=started_ms)
+            if recorder is not None and run.fired:
+                recorder.record(run, rules_by_id.get(run.ruleId), context, started_ms=started_ms)
             if not run.fired:
                 logger.info("workflow-actions: rule %s not fired (%s)", run.ruleId, run.reason)
             if run.fired:
