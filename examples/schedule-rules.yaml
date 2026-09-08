@@ -1,0 +1,23 @@
+# §21 E4 — rules that run on a schedule. There is no entity or actor: a Lookup step chooses the assets.
+# Try:  workflow-actions simulate --rules examples/schedule-rules.yaml --tick 2026-03-02T06:00:00Z
+source:
+  type: datahub-workflow-actions
+  config:
+    schemaVersion: 1
+    rules:
+      - id: weekday-untagged-report
+        name: Weekday untagged-datasets report
+        description: Every weekday at 06:00 Berlin time, find Snowflake datasets without a tier tag and post the count.
+        "on":
+          type: schedule
+          cron: "0 6 * * 1-5"
+          timezone: Europe/Berlin
+        steps:
+          - id: find
+            type: search
+            params: { query: "*", types: [DATASET], filters: '{"platform": ["urn:li:dataPlatform:snowflake"]}', maxResults: 200 }
+          - id: notify
+            type: slack
+            params:
+              channel: "#data-governance"
+              text: "{{ steps.find.output.urns | length }} Snowflake datasets checked at {{ event.scheduled }}"

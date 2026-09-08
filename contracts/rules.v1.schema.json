@@ -236,6 +236,7 @@
           "discriminator": {
             "mapping": {
               "event": "#/$defs/EventTrigger",
+              "schedule": "#/$defs/ScheduleTrigger",
               "workflow": "#/$defs/WorkflowTrigger"
             },
             "propertyName": "type"
@@ -246,6 +247,9 @@
             },
             {
               "$ref": "#/$defs/EventTrigger"
+            },
+            {
+              "$ref": "#/$defs/ScheduleTrigger"
             }
           ]
         },
@@ -280,6 +284,36 @@
       "required": [
         "id",
         "on"
+      ],
+      "type": "object"
+    },
+    "ScheduleTrigger": {
+      "additionalProperties": false,
+      "description": "Fires on a cron schedule (\u00a721 E4). The engine keeps one scheduler per executor pool, so\nkeep a rule's schedule on one pool. Ticks missed while the engine was down are skipped\nunless ``catchUp`` is set (then each missed tick runs, oldest first).",
+      "properties": {
+        "type": {
+          "const": "schedule",
+          "type": "string"
+        },
+        "cron": {
+          "description": "5-field cron expression, e.g. `0 6 * * 1-5`.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "timezone": {
+          "default": "UTC",
+          "description": "IANA zone the cron is read in, e.g. Europe/Berlin.",
+          "type": "string"
+        },
+        "catchUp": {
+          "default": false,
+          "description": "Run every tick missed while the engine was down (oldest first) instead of only the latest.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "cron"
       ],
       "type": "object"
     },

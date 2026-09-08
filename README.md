@@ -36,7 +36,7 @@ pip install datahub-workflow-actions          # also registers the `datahub-work
 **From an ingestion recipe (what the MFE writes)** — see `examples/recipe.yaml`. The source starts a datahub-actions pipeline
 in-process (Kafka `EntityChangeEvent_v1` → `workflow_actions`) and runs until stopped. Set the executor for the
 "Workflow Actions" ingestion source and add this package as an extra pip requirement
-(`extra_pip_requirements: ["datahub-workflow-actions==0.6.0"]`, or a wheel path/URL the executor can reach).
+(`extra_pip_requirements: ["datahub-workflow-actions==0.7.0"]`, or a wheel path/URL the executor can reach).
 Inside the executor the source takes its Kafka connection from `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`
 and its DataHub connection from the ingestion context (else `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`), so no
 connection config is needed in the recipe. If the executor cannot build dynamic venvs (dev images), install the
@@ -228,6 +228,26 @@ logged and skipped, not queued. Both settings are hot-reloadable from the recipe
 Column events resolve the owning dataset as `entity.parent` (name, platform, owners, …) and
 inherit its `platform`; `entity.deprecated`, `entity.deprecationNote` and
 `entity.structuredProperties` (`{propertyUrn: [values]}`) are available on every asset.
+
+## Scheduled rules (§21 E4)
+
+`on.type: schedule` runs a rule on a cron (5 fields) read in an IANA `timezone` (default UTC):
+
+```yaml
+"on": { type: schedule, cron: "0 6 * * 1-5", timezone: Europe/Berlin, catchUp: false }
+```
+
+There is no asset or actor in the context — `event` carries `id`, `time`, `scheduled` (ISO in the
+rule's zone), `cron` and `timezone`; start with a Lookup step (`search`, `lineage`, …) to choose
+what to act on. The scheduler checks for due ticks every `scheduleCheckSeconds` (default 15) and
+follows hot reload: a new schedule rule starts counting from now (nothing in the past is replayed),
+a removed one is forgotten. Ticks missed while the engine was down fire once (the latest) unless
+`catchUp: true`, then each missed tick runs oldest first. A tick's id is `schedule:<rule>:<tick ms>`,
+so a replayed tick is idempotent. Ticks and change events never interleave — one rule run at a
+time per engine. One engine runs per executor pool: keep a given schedule rule on one pool, or it
+fires once per pool. Runs record under `urn:li:dataFlow:(workflow-actions,schedules,PROD)` with
+`triggerType=schedule` and `scheduledAt`. `workflow-actions simulate --tick <ISO|ms>` dry-runs every
+schedule rule for that tick; see `examples/schedule-rules.yaml`.
 
 ## How the engine listens (Kafka or the DataHub Cloud Events API)
 

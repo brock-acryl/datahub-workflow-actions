@@ -103,7 +103,27 @@ class EventTrigger(StrictModel):
         return self
 
 
-RuleTrigger = Annotated[Union[WorkflowTrigger, EventTrigger], Field(discriminator="type")]
+class ScheduleTrigger(StrictModel):
+    """Fires on a cron schedule (§21 E4). The engine keeps one scheduler per executor pool, so
+    keep a rule's schedule on one pool. Ticks missed while the engine was down are skipped
+    unless ``catchUp`` is set (then each missed tick runs, oldest first)."""
+
+    type: Literal["schedule"]
+    cron: str = Field(min_length=1, description="5-field cron expression, e.g. `0 6 * * 1-5`.")
+    timezone: str = Field("UTC", description="IANA zone the cron is read in, e.g. Europe/Berlin.")
+    catchUp: bool = Field(False, description="Run every tick missed while the engine was down (oldest first) instead of only the latest.")
+
+    @model_validator(mode="after")
+    def _check(self) -> "ScheduleTrigger":
+        from datahub_workflow_actions.schedule import validate_cron, validate_timezone
+
+        problem = validate_cron(self.cron) or validate_timezone(self.timezone)
+        if problem:
+            raise ValueError(problem)
+        return self
+
+
+RuleTrigger = Annotated[Union[WorkflowTrigger, EventTrigger, ScheduleTrigger], Field(discriminator="type")]
 
 
 class FilterGroup(StrictModel):
@@ -186,7 +206,7 @@ class Rule(StrictModel):
         if self.on.type == "workflow" and not self.workflowUrn:
             raise ValueError(f"rule '{self.id}': a workflow trigger needs workflowUrn")
         if self.on.type != "workflow" and self.workflowUrn:
-            raise ValueError(f"rule '{self.id}': {self.on.type} rules are scoped by entityTypes/when, not workflowUrn")
+            raise ValueError(f"rule '{self.id}': {self.on.type} rules have no workflowUrn")
         seen = set()
         for step in self.steps:
             if step.id in seen:
@@ -224,6 +244,9 @@ class RulesConfig(BaseModel):
 
     def event_rules(self) -> List[Rule]:
         return [rule for rule in self.rules if rule.on.type == "event"]
+
+    def schedule_rules(self) -> List[Rule]:
+        return [rule for rule in self.rules if rule.on.type == "schedule"]
 
 
 # The EntityChangeEvent vocabulary GMS emits today (verified against the DataHub fork's

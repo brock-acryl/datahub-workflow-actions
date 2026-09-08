@@ -125,6 +125,7 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
         30.0, ge=0, description="§21 Treat the same change (entity, category, operation, modifier) seen again within this many seconds as a duplicate. 0 disables."
     )
     limits: Optional[Dict[str, Any]] = Field(None, description="§21 Volume limits: {maxRunsPerRulePerMinute: int}. Unset = unlimited.")
+    scheduleCheckSeconds: float = Field(15.0, ge=1, description="§21 E4 How often the scheduler looks for due cron ticks.")
 
 
 class WorkflowActionsSource(Source):  # type: ignore[misc]
@@ -233,12 +234,27 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
         )
         pipeline = Pipeline.create(pipeline_config)
         watcher = self._start_recipe_watcher(pipeline)
+        scheduler = self._start_scheduler(pipeline)
         try:
             pipeline.run()  # blocks until stopped
         finally:
             if watcher is not None:
                 watcher.stop()
+            if scheduler is not None:
+                scheduler.stop()
         return iter(())
+
+    def _start_scheduler(self, pipeline: Any):
+        """§21 E4: cron ticks for schedule rules, read from the live action so hot reload applies."""
+        from datahub_workflow_actions.schedule import Scheduler
+
+        action = getattr(pipeline, "action", None)
+        if action is None or not hasattr(action, "handle_tick"):
+            return None
+        scheduler = Scheduler(rules=action.schedule_rules, handle=action.handle_tick, check_seconds=self.config.scheduleCheckSeconds)
+        scheduler.start()
+        logger.info("workflow-actions: scheduler every %ss — %s", self.config.scheduleCheckSeconds, scheduler.describe())
+        return scheduler
 
     def _start_recipe_watcher(self, pipeline: Any):
         """§18.24 hot reload: re-read this source's recipe from DataHub on a timer and swap the

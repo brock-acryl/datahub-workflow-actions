@@ -443,6 +443,27 @@ def build_event_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[st
     }
 
 
+def build_schedule_context(rule: Any, tick_ms: int) -> Dict[str, Any]:
+    """§21 E4 The document a *schedule* rule runs against: no entity, no actor — a Lookup
+    step chooses the assets. ``event.id`` is stable per rule and tick, so a replayed tick
+    (engine restart with catchUp) is idempotent."""
+    from datahub_workflow_actions.schedule import iso, tick_id
+
+    tz = getattr(rule.on, "timezone", "UTC")
+    return {
+        "event": {
+            "type": "Schedule",
+            "id": tick_id(rule.id, tick_ms),
+            "ruleId": rule.id,
+            "time": tick_ms,
+            "scheduled": iso(tick_ms, tz),
+            "cron": rule.on.cron,
+            "timezone": tz,
+        },
+        "params": {},
+    }
+
+
 def build_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[str, Any]:
     """``event`` is the EntityChangeEvent as a plain dict (``EntityChangeEvent.to_obj()`` plus
     parameters). Workflow lifecycle events get the request-shaped document; anything else the

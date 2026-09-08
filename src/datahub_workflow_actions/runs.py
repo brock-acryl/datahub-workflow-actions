@@ -46,6 +46,9 @@ PROP_MODIFIER = "modifier"
 PROP_ACTOR_URN = "actorUrn"
 EVENTS_FLOW_ID = "events"
 EVENTS_FLOW_NAME = "Events"
+SCHEDULES_FLOW_ID = "schedules"
+SCHEDULES_FLOW_NAME = "Schedules"
+PROP_SCHEDULED_AT = "scheduledAt"
 MAX_STEPS_JSON = 20000  # keep the properties aspect small; outputs are truncated first
 
 
@@ -61,8 +64,16 @@ def job_urn(workflow_urn: str, rule_id: str) -> str:
     return f"urn:li:dataJob:({flow_urn(workflow_urn)},{rule_id})"
 
 
+def trigger_kind(rule: Any) -> str:
+    on = getattr(rule, "on", None)
+    return getattr(on, "type", None) or ("workflow" if getattr(rule, "workflowUrn", None) else "event")
+
+
 def flow_id_for(rule: Any) -> str:
-    """Workflow rules record under their workflow's id; event rules under the fixed ``events`` flow."""
+    """Workflow rules record under their workflow's id; event rules under ``events``; schedules under ``schedules``."""
+    kind = trigger_kind(rule)
+    if kind == "schedule":
+        return SCHEDULES_FLOW_ID
     workflow_urn = getattr(rule, "workflowUrn", None)
     return workflow_id(workflow_urn) if workflow_urn else EVENTS_FLOW_ID
 
@@ -190,13 +201,17 @@ class RunRecorder:
         request = context.get("request") or {}
         requester = context.get("requester") or {}
         entity = context.get("entity") or {}
-        is_event_rule = not workflow.get("urn") and not getattr(rule, "workflowUrn", None)
+        kind = trigger_kind(rule) if not workflow.get("urn") else "workflow"
+        is_event_rule = kind != "workflow"
         wf_urn = "" if is_event_rule else str(workflow.get("urn") or getattr(rule, "workflowUrn", "") or "")
         request_urn = "" if is_event_rule else str(request.get("urn") or event.get("entityUrn") or "")
         operation = str(event.get("operation") or "")
         result = str(event.get("result") or "")
 
-        if is_event_rule:
+        if kind == "schedule":
+            flow_id, flow_name = SCHEDULES_FLOW_ID, SCHEDULES_FLOW_NAME
+            flow_description = "Automations run by DataHub Workflow Actions on a schedule."
+        elif is_event_rule:
             flow_id, flow_name = EVENTS_FLOW_ID, EVENTS_FLOW_NAME
             flow_description = "Automations run by DataHub Workflow Actions when metadata changes."
         else:
@@ -239,10 +254,12 @@ class RunRecorder:
             PROP_RESULT: result,
             PROP_STATUS: run.status,
             PROP_REASON: str(run.reason or ""),
-            PROP_TRIGGER_TYPE: "event" if is_event_rule else "workflow",
+            PROP_TRIGGER_TYPE: kind,
             PROP_STEPS: steps_report(run.steps),
         }
-        if is_event_rule:
+        if kind == "schedule":
+            properties[PROP_SCHEDULED_AT] = str(event.get("scheduled") or "")
+        elif is_event_rule:
             properties[PROP_CATEGORY] = str(event.get("category") or "")
             properties[PROP_MODIFIER] = str(event.get("modifier") or "")
             properties[PROP_ACTOR_URN] = str(event.get("actor") or "")

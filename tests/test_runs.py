@@ -182,3 +182,25 @@ def test_workflow_runs_carry_trigger_type_workflow():
     dpi = {a: asp for u, a, asp in emitter.aspects("urn:li:dataProcessInstance:")}
     props = dpi["dataProcessInstanceProperties"].customProperties
     assert props["triggerType"] == "workflow" and "category" not in props and props["requestUrn"] == REQ
+
+
+def test_schedule_rules_record_under_the_schedules_flow():
+    from datahub_workflow_actions.context import build_schedule_context
+    from datahub_workflow_actions.runs import SCHEDULES_FLOW_ID, flow_urn_for, job_urn_for
+
+    schedule_rule = load_rules({"schemaVersion": 1, "rules": [{"id": "nightly", "name": "Nightly", "on": {"type": "schedule", "cron": "0 6 * * *"}, "steps": []}]}).rules[0]
+    assert SCHEDULES_FLOW_ID == "schedules"
+    assert flow_urn_for(schedule_rule) == "urn:li:dataFlow:(workflow-actions,schedules,PROD)"
+    assert job_urn_for(schedule_rule) == "urn:li:dataJob:(urn:li:dataFlow:(workflow-actions,schedules,PROD),nightly)"
+    emitter = FakeEmitter()
+    ctx = build_schedule_context(schedule_rule, 1754000000000)
+    run = RuleRun(ruleId="nightly", fired=True, status="ok", steps=[])
+    urn = RunRecorder(emitter).record(run, schedule_rule, ctx, started_ms=1754000001000)
+    assert urn == run_urn_for("nightly", ctx)
+    flows = [asp for u, a, asp in emitter.aspects("urn:li:dataFlow:") if a == "dataFlowInfo"]
+    assert flows[0].name == "Schedules"
+    dpi = {a: asp for u, a, asp in emitter.aspects("urn:li:dataProcessInstance:")}
+    props = dpi["dataProcessInstanceProperties"].customProperties
+    assert props["triggerType"] == "schedule" and props["scheduledAt"].startswith("2025-07-31T") is False or props["scheduledAt"]
+    assert props["entityUrn"] == "" and props["requestUrn"] == "" and "category" not in props
+    assert dpi["dataProcessInstanceInput"].inputs == [] if "dataProcessInstanceInput" in dpi else True

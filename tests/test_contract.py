@@ -155,7 +155,7 @@ def test_event_trigger_parses_normalises_and_rejects_a_workflow_urn():
     assert isinstance(rule.on, EventTrigger)
     assert rule.on.category == "TAG" and rule.on.operations == ["ADD"] and rule.on.entityTypes == ["dataset", "schemaField"]
     assert rule.on.modifier.condition == "EQUAL" and rule.on.ignoreOwnChanges is True and rule.workflowUrn is None
-    with pytest.raises(ValueError, match="not workflowUrn"):
+    with pytest.raises(ValueError, match="have no workflowUrn"):
         Rule.model_validate({**raw, "workflowUrn": "urn:li:actionWorkflow:w"})
     with pytest.raises(ValueError, match="needs workflowUrn"):
         Rule.model_validate({"id": "w", "on": {"operation": "CREATE"}, "steps": []})
@@ -186,7 +186,7 @@ def test_schema_publishes_the_trigger_union_and_optional_workflow_urn():
     assert "workflowUrn" not in rule["required"] and "on" in rule["required"]
     on = rule["properties"]["on"]
     assert on["discriminator"]["propertyName"] == "type"
-    assert set(on["discriminator"]["mapping"]) == {"workflow", "event"}
+    assert set(on["discriminator"]["mapping"]) == {"workflow", "event", "schedule"}
     assert {"WorkflowTrigger", "EventTrigger", "ValueMatch"} <= set(schema["$defs"])
     assert schema["$defs"]["WorkflowTrigger"]["properties"]["type"]["default"] == "workflow"
     assert "type" not in schema["$defs"]["WorkflowTrigger"].get("required", [])  # legacy recipes omit it
@@ -194,3 +194,25 @@ def test_schema_publishes_the_trigger_union_and_optional_workflow_urn():
     catalog = triggers_catalog()
     assert set(catalog["categories"]) == set(KNOWN_TRIGGERS) and "dataset" in catalog["entityTypes"]
     assert catalog["categories"]["OWNERSHIP"]["operations"] == ["ADD", "REMOVE"]
+
+
+# ---------------------------------------------------------------------------
+# §21 E4 schedule trigger
+# ---------------------------------------------------------------------------
+
+
+def test_schedule_trigger_parses_and_validates():
+    cfg = load_rules({"schemaVersion": 1, "rules": [{
+        "id": "nightly", "on": {"type": "schedule", "cron": "0 6 * * 1-5", "timezone": "Europe/Berlin"},
+        "steps": [{"id": "s", "type": "search", "params": {"query": "*"}}]}]})
+    rule = cfg.rules[0]
+    assert rule.trigger_type == "schedule" and rule.on.cron == "0 6 * * 1-5" and rule.on.timezone == "Europe/Berlin" and rule.on.catchUp is False
+    assert cfg.schedule_rules() == [rule] and cfg.event_rules() == [] and cfg.workflow_rules() == []
+    with pytest.raises(ValidationError, match="invalid cron"):
+        load_rules({"schemaVersion": 1, "rules": [{"id": "x", "on": {"type": "schedule", "cron": "every day"}}]})
+    with pytest.raises(ValidationError, match="unknown timezone"):
+        load_rules({"schemaVersion": 1, "rules": [{"id": "x", "on": {"type": "schedule", "cron": "* * * * *", "timezone": "Mars/Olympus"}}]})
+    with pytest.raises(ValidationError, match="have no workflowUrn"):
+        load_rules({"schemaVersion": 1, "rules": [{"id": "x", "workflowUrn": "urn:li:actionWorkflow:w", "on": {"type": "schedule", "cron": "* * * * *"}}]})
+    schema = rules_json_schema()
+    assert "ScheduleTrigger" in schema["$defs"] and schema["$defs"]["ScheduleTrigger"]["properties"]["cron"]

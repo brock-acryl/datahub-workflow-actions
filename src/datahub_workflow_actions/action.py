@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from datahub_workflow_actions.context import (
     GraphResolver,
     build_event_context,
+    build_schedule_context,
     build_workflow_context,
     event_view,
     is_workflow_lifecycle_event,
@@ -125,6 +127,8 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
         self.index = EventIndex(config.rules)
         self.recent = recent if recent is not None else RecentEvents()
         self.limiter = limiter if limiter is not None else RuleRateLimiter(None)
+        # Ticks and events never interleave: one rule run at a time per engine (§21 E4).
+        self._run_lock = threading.RLock()
         self._own_actor: Optional[str] = own_actor
         self._own_actor_resolved = own_actor is not None
         graph = getattr(getattr(ctx, "graph", None), "graph", None)
@@ -147,12 +151,13 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
 
     def _describe(self, config: RulesConfig, dry_run: bool) -> str:
         workflow_rules = config.workflow_rules()
-        return "%s rule(s) — %s workflow rule(s) for %s workflow(s), %s event rule(s) [%s]; dedupe %s, %s%s" % (
+        return "%s rule(s) — %s workflow rule(s) for %s workflow(s), %s event rule(s) [%s], %s schedule rule(s); dedupe %s, %s%s" % (
             len(config.rules),
             len(workflow_rules),
             len({r.workflowUrn for r in workflow_rules}),
             len(self.index),
             self.index.describe(),
+            len(config.schedule_rules()),
             f"{self.recent.window:g}s" if self.recent.enabled else "off",
             self.limiter.describe(),
             " (dry run)" if dry_run else "",
@@ -227,6 +232,24 @@ class WorkflowActionsAction(Action):  # type: ignore[misc]
     def handle_event(self, payload: Dict[str, Any]) -> list:
         """Workflow lifecycle events run the rules of their workflow; every other
         EntityChangeEvent goes through the EventIndex (§21)."""
+        with self._run_lock:
+            return self._handle_event(payload)
+
+    def handle_tick(self, rule: Rule, tick_ms: int) -> list:
+        """§21 E4 One schedule tick for one rule (called by the Scheduler)."""
+        with self._run_lock:
+            config, engine, recorder = self.config, self.engine, self.recorder
+            current = next((r for r in config.schedule_rules() if r.id == rule.id), None)
+            if current is None:
+                logger.info("workflow-actions: schedule tick for %s ignored (rule no longer scheduled)", rule.id)
+                return []
+            context = build_schedule_context(current, tick_ms)
+            return self._run(config, engine, recorder, [current], context)
+
+    def schedule_rules(self) -> List[Rule]:
+        return self.config.schedule_rules()
+
+    def _handle_event(self, payload: Dict[str, Any]) -> list:
         config, engine, recorder, index = self.config, self.engine, self.recorder, self.index  # snapshot: a reload mid-event does not mix rule sets
         if is_workflow_lifecycle_event(payload):
             workflow_urn = (payload.get("parameters") or {}).get("workflowUrn")

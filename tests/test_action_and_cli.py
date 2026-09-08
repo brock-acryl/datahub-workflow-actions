@@ -386,3 +386,89 @@ def test_source_passes_volume_settings_to_the_action():
     from datahub_workflow_actions.reload import RELOADABLE_KEYS
 
     assert "dedupeWindowSeconds" in RELOADABLE_KEYS and "limits" in RELOADABLE_KEYS
+
+
+# ---------------------------------------------------------------------------
+# §21 E4 schedule ticks through the action
+# ---------------------------------------------------------------------------
+
+SCHEDULE_RULES = {
+    "schemaVersion": 1,
+    "rules": [
+        RULES["rules"][0],
+        {
+            "id": "nightly-tag",
+            "name": "Nightly tag",
+            "on": {"type": "schedule", "cron": "0 6 * * *", "timezone": "UTC"},
+            "steps": [{"id": "tag", "type": "add_tag", "params": {"entity": DATASET, "tag": "urn:li:tag:nightly"}}],
+        },
+    ],
+}
+
+
+def test_handle_tick_runs_the_schedule_rule_once_per_tick(fake_graph):
+    class G:
+        graph = fake_graph
+
+    class C:
+        graph = G()
+
+    action = WorkflowActionsAction.create({**SCHEDULE_RULES, "inMemoryState": True}, C())
+    assert [r.id for r in action.schedule_rules()] == ["nightly-tag"]
+    rule = action.schedule_rules()[0]
+    runs = action.handle_tick(rule, 1754000000000)
+    assert [(r.ruleId, r.fired, r.status) for r in runs] == [("nightly-tag", True, "ok")]
+    assert _mutations(fake_graph) == ["batchAddTags"]
+    # the same tick replayed (restart with catchUp) is idempotent through the state store
+    fake_graph.calls.clear()
+    again = action.handle_tick(rule, 1754000000000)
+    assert again[0].steps[0].status == "skipped" and _mutations(fake_graph) == []
+    # a later tick runs again
+    assert action.handle_tick(rule, 1754086400000)[0].steps[0].status == "ok"
+    # a rule that is no longer scheduled is ignored
+    action.apply_config({**RULES, "inMemoryState": True})
+    assert action.handle_tick(rule, 1754172800000) == []
+    # workflow events are untouched by the schedule machinery
+    assert [r.ruleId for r in action.handle_event(completed_event()) if r.fired] == ["on-approval"]
+
+
+def test_ticks_and_events_never_interleave(fake_graph):
+    import threading
+
+    class G:
+        graph = fake_graph
+
+    class C:
+        graph = G()
+
+    action = WorkflowActionsAction.create({**SCHEDULE_RULES, "inMemoryState": True}, C())
+    order = []
+    original = action._run
+
+    def slow_run(*a, **kw):
+        order.append("start")
+        import time as _t
+
+        _t.sleep(0.05)
+        result = original(*a, **kw)
+        order.append("end")
+        return result
+
+    action._run = slow_run
+    rule = action.schedule_rules()[0]
+    t1 = threading.Thread(target=lambda: action.handle_tick(rule, 1754000000000))
+    t2 = threading.Thread(target=lambda: action.handle_event(completed_event()))
+    t1.start(); t2.start(); t1.join(); t2.join()
+    assert order == ["start", "end", "start", "end"]
+
+
+def test_cli_simulate_tick(tmp_path, capsys):
+    rules = tmp_path / "rules.json"
+    rules.write_text(json.dumps(SCHEDULE_RULES))
+    assert cli.main(["simulate", "--rules", str(rules), "--tick", "2026-03-01T06:00:00Z", "--show-context"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [r["ruleId"] for r in out["runs"]] == ["nightly-tag"] and out["runs"][0]["status"] == "dry-run"
+    ctx = out["context"]["nightly-tag"]
+    assert ctx["event"]["type"] == "Schedule" and ctx["event"]["id"] == "schedule:nightly-tag:1772344800000"
+    assert ctx["event"]["scheduled"].startswith("2026-03-01T06:00:00") and "entity" not in ctx
+    assert cli.main(["simulate", "--rules", str(rules)]) == 1  # neither --event nor --tick

@@ -18,7 +18,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-from datahub_workflow_actions.contract import EventTrigger, Filter, Rule, RulesConfig, Step, ValueMatch
+from datahub_workflow_actions.contract import EventTrigger, Filter, Rule, RulesConfig, ScheduleTrigger, Step, ValueMatch
 from datahub_workflow_actions.filters import _matches_one, evaluate, evaluate_filter
 from datahub_workflow_actions.state import InMemoryStateStore
 from datahub_workflow_actions.steps import RunContext, get_step
@@ -95,6 +95,12 @@ def event_trigger_matches(trigger: EventTrigger, event: Mapping[str, Any], own_a
 def trigger_matches(rule: Rule, context: Mapping[str, Any]) -> Optional[str]:
     """None when the rule's trigger matches the event; otherwise the reason it doesn't."""
     event = context.get("event") or {}
+    if isinstance(rule.on, ScheduleTrigger):
+        if event.get("type") != "Schedule":
+            return "not a schedule tick"
+        if event.get("ruleId") not in (None, rule.id):
+            return f"tick for {event.get('ruleId')}, not {rule.id}"
+        return None
     if isinstance(rule.on, EventTrigger):
         if event.get("type") == "Schedule":
             return "a schedule tick, not a change event"

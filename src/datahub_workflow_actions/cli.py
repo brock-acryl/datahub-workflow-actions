@@ -12,7 +12,7 @@ from typing import Any, Optional
 import yaml
 
 from datahub_workflow_actions.context import StaticResolver, build_context
-from datahub_workflow_actions.contract import load_rules, rules_json_schema
+from datahub_workflow_actions.contract import RulesConfig, load_rules, rules_json_schema
 from datahub_workflow_actions.engine import Engine
 from datahub_workflow_actions.steps import RunContext, catalog
 
@@ -123,8 +123,24 @@ def _connection_problems(raw: Any, config: RulesConfig) -> list:
     return problems
 
 
+def _tick_ms(value: str) -> int:
+    if value.isdigit():
+        return int(value)
+    from datetime import datetime, timezone
+
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
 def cmd_simulate(args: argparse.Namespace) -> int:
     config = load_rules(_load(args.rules))
+    if args.tick:
+        return _simulate_tick(args, config)
+    if not args.event:
+        print("simulate needs --event (or --tick for schedule rules)", file=sys.stderr)
+        return 1
     event = _load(args.event)
     fixtures = _load(args.fixtures) if args.fixtures else {}
     context = build_context(event, StaticResolver(fixtures))
@@ -153,6 +169,22 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     return 0 if all(r.status in ("ok", "dry-run", "not-fired") for r in runs) else 2
 
 
+def _simulate_tick(args: argparse.Namespace, config) -> int:
+    """§21 E4 Run every schedule rule as if its cron fired at --tick (dry run unless --execute)."""
+    from datahub_workflow_actions.context import build_schedule_context
+
+    tick_ms = _tick_ms(args.tick)
+    engine = Engine(RunContext(), dry_run=not args.execute)
+    output = {"runs": [], **({"context": {}} if args.show_context else {})}
+    for rule in config.schedule_rules():
+        context = build_schedule_context(rule, tick_ms)
+        if args.show_context:
+            output["context"][rule.id] = context
+        output["runs"].extend(r.to_dict() for r in engine.run(RulesConfig(schemaVersion=config.schemaVersion, rules=[rule]), context))
+    print(json.dumps(output, indent=2, default=str))
+    return 0 if all(r["status"] in ("ok", "dry-run", "not-fired") for r in output["runs"]) else 2
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(prog="workflow-actions", description="DataHub workflow-actions tooling")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -164,7 +196,8 @@ def main(argv: Optional[list] = None) -> int:
     validate.set_defaults(func=cmd_validate)
     simulate = sub.add_parser("simulate", help="evaluate rules against an event (dry run unless --execute)")
     simulate.add_argument("--rules", required=True)
-    simulate.add_argument("--event", required=True)
+    simulate.add_argument("--event", help="EntityChangeEvent JSON/YAML file (omit with --tick)")
+    simulate.add_argument("--tick", help="§21 E4 simulate the schedule rules firing at this time (ISO-8601 or epoch ms)")
     simulate.add_argument("--fixtures", help="JSON/YAML map of urn → GraphQL-shaped fixture used to resolve the context")
     simulate.add_argument("--show-context", action="store_true")
     simulate.add_argument("--own-actor", help="urn the engine writes as; events by this actor are skipped by rules with ignoreOwnChanges")
