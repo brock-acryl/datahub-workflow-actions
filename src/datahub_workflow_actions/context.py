@@ -1,5 +1,17 @@
-"""Turn an actionRequest EntityChangeEvent into the context document that
-filters and templates read.
+"""Turn an EntityChangeEvent into the context document that filters and templates read.
+
+Workflow events (an actionRequest's lifecycle) build the request-shaped document below.
+Any other change event (§21) builds the event-shaped document — see ``build_event_context``:
+
+    event      type, id, category, operation, modifier, entityType, entityUrn, parameters, time, actor
+    entity     urn, type, name, platform, description, tags[], terms[], owners[], domain, parent{urn}, fieldPath
+    actor      urn, username, email, name, groups[]        (who made the change)
+    change     tag, term, owner, ownerType, domain, property, values, status, note, description,
+               previousDescription, modificationCategory, businessAttribute, result, runId, assertee,
+               incident{type,title,stage,entities}, parent, field, subject{urn,type,name}
+    params     the decoded event parameters
+
+Workflow-shaped document:
 
     event      operation, result, stepId, time, actor, id
     request    urn, id, description, status, result, resultNote, createdAt
@@ -235,8 +247,142 @@ def _entity_doc(urn: Optional[str], event_params: Mapping[str, Any], resolver: R
     return doc
 
 
+def parse_parameters(raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """ECE parameters are a flat string map; nested values (propertyValues, tagUrns, owners, …)
+    arrive JSON-encoded. Decode anything that looks like JSON, keep the rest verbatim."""
+    params: Dict[str, Any] = {}
+    for key, value in (raw or {}).items():
+        if isinstance(value, str):
+            text = value.strip()
+            if text[:1] in ("{", "[") and text[-1:] in ("}", "]"):
+                try:
+                    value = json.loads(text)
+                except ValueError:
+                    pass
+        params[key] = value
+    return params
+
+
+def event_view(event: Mapping[str, Any]) -> Dict[str, Any]:
+    """The cheap, lookup-free view ``engine.event_trigger_matches`` checks on every event."""
+    audit = event.get("auditStamp") or {}
+    params = parse_parameters(event.get("parameters"))
+    return {
+        "entityType": event.get("entityType"),
+        "entityUrn": event.get("entityUrn"),
+        "category": event.get("category"),
+        "operation": event.get("operation"),
+        "modifier": event.get("modifier"),
+        "parameters": params,
+        "actor": params.get("actorUrn") or audit.get("actor"),
+        "time": audit.get("time"),
+    }
+
+
+def event_id(event: Mapping[str, Any]) -> str:
+    """Idempotency id. Workflow events keep the pre-§21 shape so existing state rows stay valid;
+    other change events include category and modifier — the same asset gets two different tags
+    at the same millisecond and both must run."""
+    audit = event.get("auditStamp") or {}
+    if is_workflow_lifecycle_event(event):
+        return f"{event.get('entityUrn') or ''}:{event.get('operation')}:{audit.get('time')}"
+    return ":".join(
+        str(part if part is not None else "")
+        for part in (event.get("entityUrn"), event.get("category"), event.get("operation"), event.get("modifier"), audit.get("time"))
+    )
+
+
+CHANGE_KEYS = (
+    "tag", "term", "owner", "ownerType", "domain", "property", "values", "status", "note", "description",
+    "previousDescription", "modificationCategory", "businessAttribute", "result", "runId", "assertee",
+    "incident", "parent", "field", "subject",
+)
+
+
+def change_doc(event: Mapping[str, Any], params: Mapping[str, Any]) -> Dict[str, Any]:
+    """A stable vocabulary over what changed, so templates read ``change.tag`` whatever the
+    category — every key is always present (None when it does not apply)."""
+    category = str(event.get("category") or "").upper()
+    modifier = event.get("modifier")
+    doc: Dict[str, Any] = {key: None for key in CHANGE_KEYS}
+    doc.update(
+        {
+            "tag": params.get("tagUrn") or (modifier if category == "TAG" else None),
+            "term": params.get("termUrn") or (modifier if category == "GLOSSARY_TERM" else None),
+            "owner": params.get("ownerUrn") or (modifier if category == "OWNERSHIP" else None),
+            "ownerType": params.get("ownerTypeUrn") or params.get("ownerType"),
+            "domain": params.get("domainUrn") or (modifier if category == "DOMAIN" else None),
+            "property": params.get("propertyUrn") or (modifier if category == "STRUCTURED_PROPERTY" else None),
+            "values": params.get("propertyValues"),
+            "status": params.get("status"),
+            "note": params.get("note"),
+            "description": params.get("description"),
+            "previousDescription": params.get("previousDescription"),
+            "modificationCategory": params.get("modificationCategory"),
+            "businessAttribute": params.get("businessAttributeUrn") or (modifier if category == "BUSINESS_ATTRIBUTE" else None),
+            "result": params.get("assertionResult") or params.get("runResult") or params.get("result"),
+            "runId": params.get("runId") or params.get("dataProcessInstanceUrn"),
+            "assertee": params.get("asserteeUrn"),
+            "parent": params.get("parentUrn"),
+            "field": params.get("fieldPath") or (modifier if category == "TECHNICAL_SCHEMA" else None),
+            "subject": {
+                "urn": event.get("entityUrn"),
+                "type": (event.get("entityType") or "").lower() or None,
+                "name": urn_name(event.get("entityUrn") or ""),
+            },
+        }
+    )
+    if category == "INCIDENT":
+        doc["incident"] = {
+            "type": params.get("type"),
+            "title": params.get("title"),
+            "stage": params.get("stage"),
+            "entities": params.get("entities"),
+        }
+    return doc
+
+
+def build_event_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[str, Any]:
+    """§21 The document an *event* rule runs against. Deliberately has no ``workflow`` /
+    ``request`` / ``requester`` / ``approver`` / ``form`` keys — a template that reaches for
+    them fails loudly instead of rendering an empty string."""
+    view = event_view(event)
+    params = view["parameters"]
+    entity_urn = view.get("entityUrn")
+    entity = _entity_doc(entity_urn, {"entityType": view.get("entityType")}, resolver)
+    if entity:
+        entity["parent"] = {"urn": params.get("parentUrn")} if params.get("parentUrn") else None
+        entity["fieldPath"] = params.get("fieldPath")
+    return {
+        "event": {
+            "type": "EntityChangeEvent",
+            "id": event_id(event),
+            "category": view.get("category"),
+            "operation": view.get("operation"),
+            "modifier": view.get("modifier"),
+            "entityType": view.get("entityType"),
+            "entityUrn": entity_urn,
+            "parameters": params,
+            "time": view.get("time"),
+            "actor": view.get("actor"),
+        },
+        "entity": entity,
+        "actor": _user_doc(view.get("actor"), resolver),
+        "change": change_doc(event, params),
+        "params": params,
+    }
+
+
 def build_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[str, Any]:
-    """``event`` is the EntityChangeEvent as a plain dict (``EntityChangeEvent.to_obj()``)."""
+    """``event`` is the EntityChangeEvent as a plain dict (``EntityChangeEvent.to_obj()`` plus
+    parameters). Workflow lifecycle events get the request-shaped document; anything else the
+    event-shaped one (§21)."""
+    if not is_workflow_lifecycle_event(event):
+        return build_event_context(event, resolver)
+    return build_workflow_context(event, resolver)
+
+
+def build_workflow_context(event: Mapping[str, Any], resolver: Resolver) -> Dict[str, Any]:
     params: Dict[str, Any] = dict(event.get("parameters") or {})
     audit = event.get("auditStamp") or {}
     request_urn = event.get("entityUrn") or ""

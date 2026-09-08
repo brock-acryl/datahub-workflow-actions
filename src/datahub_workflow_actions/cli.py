@@ -128,6 +128,8 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     event = _load(args.event)
     fixtures = _load(args.fixtures) if args.fixtures else {}
     context = build_context(event, StaticResolver(fixtures))
+    if "workflow" not in context:  # §21 event rules: the own-actor guard compares against this
+        context["engine"] = {"actor": args.own_actor}
     graph: Optional[Any] = None
     if args.execute:
         from datahub.ingestion.graph.client import DataHubGraph, DatahubClientConfig
@@ -165,6 +167,7 @@ def main(argv: Optional[list] = None) -> int:
     simulate.add_argument("--event", required=True)
     simulate.add_argument("--fixtures", help="JSON/YAML map of urn → GraphQL-shaped fixture used to resolve the context")
     simulate.add_argument("--show-context", action="store_true")
+    simulate.add_argument("--own-actor", help="urn the engine writes as; events by this actor are skipped by rules with ignoreOwnChanges")
     simulate.add_argument("--execute", action="store_true", help="really run the steps against --gms")
     simulate.add_argument("--gms", default="http://localhost:8080")
     simulate.add_argument("--token")

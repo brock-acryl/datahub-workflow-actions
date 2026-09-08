@@ -2,8 +2,19 @@ import json
 
 from datahub_workflow_actions.contract import load_rules
 from datahub_workflow_actions.engine import RuleRun, StepRun
-from datahub_workflow_actions.runs import RunRecorder, flow_urn, job_urn, run_urn, steps_report
-from tests.conftest import DATASET, REQ, WF
+from datahub_workflow_actions.runs import (
+    EVENTS_FLOW_ID,
+    RunRecorder,
+    flow_urn,
+    flow_urn_for,
+    job_urn,
+    job_urn_for,
+    run_key,
+    run_urn,
+    run_urn_for,
+    steps_report,
+)
+from tests.conftest import DATASET, REQ, TAG_PII, WF
 
 
 class FakeEmitter:
@@ -98,3 +109,76 @@ def test_recorder_skips_not_fired_and_dry_runs_unless_asked_and_never_raises():
     assert RunRecorder(Broken()).record(failed, rule(), context()) is None  # logged, not raised
     assert RunRecorder.from_config(None, {"enabled": True}) is None
     assert RunRecorder.from_config(emitter, {"enabled": False}) is None
+
+
+# ---------------------------------------------------------------------------
+# §21 event rules record under the fixed `events` flow
+# ---------------------------------------------------------------------------
+
+
+def event_rule():
+    return load_rules({"schemaVersion": 1, "rules": [{
+        "id": "pii-term", "name": "PII tag → term",
+        "on": {"type": "event", "category": "TAG", "operations": ["ADD"]},
+        "steps": [{"id": "s", "type": "add_term", "params": {"term": "urn:li:glossaryTerm:x"}}]}]}).rules[0]
+
+
+def event_context(entity_urn=DATASET, parent=None):
+    entity = {"urn": entity_urn}
+    if parent:
+        entity["parent"] = {"urn": parent}
+    return {
+        "event": {"type": "EntityChangeEvent", "id": f"{entity_urn}:TAG:ADD:{TAG_PII}:1754000000000", "category": "TAG", "operation": "ADD",
+                  "modifier": TAG_PII, "entityUrn": entity_urn, "entityType": "dataset", "time": 1754000000000, "actor": "urn:li:corpuser:admin"},
+        "entity": entity,
+        "actor": {"urn": "urn:li:corpuser:admin"},
+        "change": {"tag": TAG_PII},
+        "params": {},
+    }
+
+
+def test_event_rule_urns_mirror_the_mfe_contract():
+    assert EVENTS_FLOW_ID == "events"
+    assert flow_urn_for(event_rule()) == "urn:li:dataFlow:(workflow-actions,events,PROD)"
+    assert job_urn_for(event_rule()) == "urn:li:dataJob:(urn:li:dataFlow:(workflow-actions,events,PROD),pii-term)"
+    # workflow rules are unchanged
+    assert flow_urn_for(rule()) == flow_urn(WF) and job_urn_for(rule()) == job_urn(WF, "grant")
+    # workflow runs keep their pre-§21 ids; event runs key on rule + event id
+    assert run_urn_for("grant", context()) == run_urn("grant", REQ, "COMPLETED", "ACCEPTED", 1754000000000)
+    assert run_key("pii-term", event_context()) == f"pii-term|{DATASET}:TAG:ADD:{TAG_PII}:1754000000000"
+    assert run_urn_for("pii-term", event_context()) != run_urn_for("pii-term", event_context(entity_urn="urn:li:dataset:(x,y,PROD)"))
+
+
+def test_recorder_writes_event_runs_with_event_properties_and_no_request():
+    emitter = FakeEmitter()
+    run = RuleRun(ruleId="pii-term", fired=True, status="ok", steps=[StepRun(stepId="s", type="add_term", status="ok", attempts=1)])
+    urn = RunRecorder(emitter).record(run, event_rule(), event_context(), started_ms=1754000001000)
+    assert urn == run_urn_for("pii-term", event_context())
+    flows = [asp for u, a, asp in emitter.aspects("urn:li:dataFlow:") if a == "dataFlowInfo"]
+    assert flows[0].name == "Events"
+    dpi = {a: asp for u, a, asp in emitter.aspects("urn:li:dataProcessInstance:")}
+    props = dpi["dataProcessInstanceProperties"].customProperties
+    assert props["triggerType"] == "event" and props["category"] == "TAG" and props["modifier"] == TAG_PII
+    assert props["actorUrn"] == "urn:li:corpuser:admin" and props["entityUrn"] == DATASET and props["operation"] == "ADD"
+    assert props["workflowUrn"] == "" and props["requestUrn"] == "" and props["requesterUrn"] == ""
+    assert dpi["dataProcessInstanceRelationships"].parentTemplate == job_urn_for(event_rule())
+    assert dpi["dataProcessInstanceInput"].inputs == [DATASET]
+
+
+def test_field_events_use_the_parent_dataset_as_inlet():
+    emitter = FakeEmitter()
+    field = f"urn:li:schemaField:({DATASET},customer_email)"
+    run = RuleRun(ruleId="pii-term", fired=True, status="ok", steps=[])
+    RunRecorder(emitter).record(run, event_rule(), event_context(entity_urn=field, parent=DATASET), started_ms=1)
+    dpi = {a: asp for u, a, asp in emitter.aspects("urn:li:dataProcessInstance:")}
+    assert dpi["dataProcessInstanceInput"].inputs == [DATASET]
+    assert dpi["dataProcessInstanceProperties"].customProperties["entityUrn"] == field
+
+
+def test_workflow_runs_carry_trigger_type_workflow():
+    emitter = FakeEmitter()
+    run = RuleRun(ruleId="grant", fired=True, status="ok", steps=[])
+    RunRecorder(emitter).record(run, rule(), context(), started_ms=1)
+    dpi = {a: asp for u, a, asp in emitter.aspects("urn:li:dataProcessInstance:")}
+    props = dpi["dataProcessInstanceProperties"].customProperties
+    assert props["triggerType"] == "workflow" and "category" not in props and props["requestUrn"] == REQ

@@ -1,0 +1,17 @@
+{
+  "auditStamp": {
+    "actor": "urn:li:corpuser:admin",
+    "time": 1754000000000
+  },
+  "entityUrn": "urn:li:schemaField:(urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD),customer_email)",
+  "entityType": "schemaField",
+  "category": "TAG",
+  "operation": "ADD",
+  "modifier": "urn:li:tag:pii",
+  "version": 0,
+  "parameters": {
+    "tagUrn": "urn:li:tag:pii",
+    "parentUrn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)",
+    "fieldPath": "customer_email"
+  }
+}

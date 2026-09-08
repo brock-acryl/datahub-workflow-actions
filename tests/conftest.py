@@ -33,6 +33,51 @@ def completed_event(result="ACCEPTED", **extra_params):
     }
 
 
+TAG_PII = "urn:li:tag:pii"
+ADMIN = "urn:li:corpuser:admin"
+
+
+def tag_added_event(tag=TAG_PII, actor=ADMIN, entity_urn=DATASET, time=1754000000000, operation="ADD", **extra_params):
+    """A TAG ADD EntityChangeEvent as GMS emits it (§21)."""
+    return {
+        "auditStamp": {"actor": actor, "time": time},
+        "entityUrn": entity_urn,
+        "entityType": "dataset",
+        "category": "TAG",
+        "operation": operation,
+        "modifier": tag,
+        "version": 0,
+        "parameters": {"tagUrn": tag, **extra_params},
+    }
+
+
+def field_tag_added_event(tag=TAG_PII, field_path="customer_email", parent=DATASET, actor=ADMIN, time=1754000000000):
+    """Field tags arrive with entityType schemaField and parentUrn = the dataset."""
+    field_urn = f"urn:li:schemaField:({parent},{field_path})"
+    return {
+        "auditStamp": {"actor": actor, "time": time},
+        "entityUrn": field_urn,
+        "entityType": "schemaField",
+        "category": "TAG",
+        "operation": "ADD",
+        "modifier": tag,
+        "version": 0,
+        "parameters": {"tagUrn": tag, "parentUrn": parent, "fieldPath": field_path},
+    }
+
+
+def deprecation_event(status="DEPRECATED", note="Use orders_v2", actor=ADMIN, time=1754000000000):
+    return {
+        "auditStamp": {"actor": actor, "time": time},
+        "entityUrn": DATASET,
+        "entityType": "dataset",
+        "category": "DEPRECATION",
+        "operation": "MODIFY",
+        "version": 0,
+        "parameters": {"status": status, "note": note},
+    }
+
+
 FIXTURES = {
     REQ: {
         "urn": REQ,
@@ -72,6 +117,7 @@ FIXTURES = {
         "relationships": {"relationships": [{"entity": {"urn": "urn:li:corpGroup:analysts"}}]},
     },
     "urn:li:corpuser:approver": {"urn": "urn:li:corpuser:approver", "username": "approver", "properties": {"displayName": "Al Approver"}},
+    ADMIN: {"urn": ADMIN, "username": "admin", "properties": {"displayName": "DataHub Admin", "email": "admin@example.com"}},
 }
 
 

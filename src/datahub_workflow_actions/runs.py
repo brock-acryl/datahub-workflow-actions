@@ -4,7 +4,8 @@ action did to which asset and whether it worked.
 
 Shape (all deterministic, so the MFE can address them without lookups):
 
-* DataFlow  ``urn:li:dataFlow:(workflow-actions,<workflow id>,PROD)``  — one per workflow
+* DataFlow  ``urn:li:dataFlow:(workflow-actions,<workflow id>,PROD)``  — one per workflow;
+            event rules (§21, no workflow) share ``urn:li:dataFlow:(workflow-actions,events,PROD)``
 * DataJob   ``urn:li:dataJob:(<flow urn>,<rule id>)``                   — one per rule
 * DataProcessInstance — one per fire; STARTED then COMPLETE with SUCCESS/FAILURE,
   properties carry the request, requester, entity and a compact step report.
@@ -38,6 +39,13 @@ PROP_RESULT = "result"
 PROP_STATUS = "status"
 PROP_REASON = "reason"
 PROP_STEPS = "steps"
+# §21 event runs
+PROP_TRIGGER_TYPE = "triggerType"
+PROP_CATEGORY = "category"
+PROP_MODIFIER = "modifier"
+PROP_ACTOR_URN = "actorUrn"
+EVENTS_FLOW_ID = "events"
+EVENTS_FLOW_NAME = "Events"
 MAX_STEPS_JSON = 20000  # keep the properties aspect small; outputs are truncated first
 
 
@@ -53,9 +61,36 @@ def job_urn(workflow_urn: str, rule_id: str) -> str:
     return f"urn:li:dataJob:({flow_urn(workflow_urn)},{rule_id})"
 
 
+def flow_id_for(rule: Any) -> str:
+    """Workflow rules record under their workflow's id; event rules under the fixed ``events`` flow."""
+    workflow_urn = getattr(rule, "workflowUrn", None)
+    return workflow_id(workflow_urn) if workflow_urn else EVENTS_FLOW_ID
+
+
+def flow_urn_for(rule: Any) -> str:
+    return f"urn:li:dataFlow:({ORCHESTRATOR},{flow_id_for(rule)},{ENV})"
+
+
+def job_urn_for(rule: Any) -> str:
+    return f"urn:li:dataJob:({flow_urn_for(rule)},{rule.id})"
+
+
+def run_key(rule_id: str, context: Mapping[str, Any]) -> str:
+    """What makes a run unique: the rule plus the event it answered."""
+    event = context.get("event") or {}
+    request = context.get("request") or {}
+    if request.get("urn") or (context.get("workflow") or {}).get("urn"):
+        return f"{rule_id}|{request.get('urn') or event.get('entityUrn') or ''}|{event.get('operation') or ''}|{event.get('result') or ''}|{int(event.get('time') or 0)}"
+    return f"{rule_id}|{event.get('id') or ''}"
+
+
 def run_id(rule_id: str, request_urn: str, operation: str, result: str, event_time_ms: int) -> str:
     raw = f"{rule_id}|{request_urn}|{operation}|{result}|{event_time_ms}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def run_id_for(rule_id: str, context: Mapping[str, Any]) -> str:
+    return hashlib.sha1(run_key(rule_id, context).encode("utf-8")).hexdigest()[:24]
 
 
 def run_urn(rule_id: str, request_urn: str, operation: str, result: str, event_time_ms: int) -> str:
@@ -63,6 +98,12 @@ def run_urn(rule_id: str, request_urn: str, operation: str, result: str, event_t
     from datahub.api.entities.dataprocess.dataprocess_instance import DataProcessInstance
 
     return str(DataProcessInstance(id=run_id(rule_id, request_urn, operation, result, event_time_ms), orchestrator=ORCHESTRATOR, cluster=ENV).urn)
+
+
+def run_urn_for(rule_id: str, context: Mapping[str, Any]) -> str:
+    from datahub.api.entities.dataprocess.dataprocess_instance import DataProcessInstance
+
+    return str(DataProcessInstance(id=run_id_for(rule_id, context), orchestrator=ORCHESTRATOR, cluster=ENV).urn)
 
 
 def _truncate(value: Any, limit: int = 500) -> Any:
@@ -149,55 +190,70 @@ class RunRecorder:
         request = context.get("request") or {}
         requester = context.get("requester") or {}
         entity = context.get("entity") or {}
-        wf_urn = str(workflow.get("urn") or getattr(rule, "workflowUrn", "") or "")
-        request_urn = str(request.get("urn") or event.get("entityUrn") or "")
+        is_event_rule = not workflow.get("urn") and not getattr(rule, "workflowUrn", None)
+        wf_urn = "" if is_event_rule else str(workflow.get("urn") or getattr(rule, "workflowUrn", "") or "")
+        request_urn = "" if is_event_rule else str(request.get("urn") or event.get("entityUrn") or "")
         operation = str(event.get("operation") or "")
         result = str(event.get("result") or "")
-        event_time = int(event.get("time") or started_ms)
 
+        if is_event_rule:
+            flow_id, flow_name = EVENTS_FLOW_ID, EVENTS_FLOW_NAME
+            flow_description = "Automations run by DataHub Workflow Actions when metadata changes."
+        else:
+            flow_id, flow_name = workflow_id(wf_urn), str(workflow.get("name") or workflow_id(wf_urn))
+            flow_description = "Automations run by DataHub Workflow Actions when requests through this workflow are decided."
+        flow_urn_str = f"urn:li:dataFlow:({ORCHESTRATOR},{flow_id},{ENV})"
         flow = DataFlow(
-            id=workflow_id(wf_urn),
+            id=flow_id,
             orchestrator=ORCHESTRATOR,
             env=ENV,
-            name=str(workflow.get("name") or workflow_id(wf_urn)),
-            description="Automations run by DataHub Workflow Actions when requests through this workflow are decided.",
+            name=flow_name,
+            description=flow_description,
             properties={PROP_WORKFLOW_URN: wf_urn},
         )
         job = DataJob(
             id=run.ruleId,
-            flow_urn=DataFlowUrn.from_string(flow_urn(wf_urn)),
+            flow_urn=DataFlowUrn.from_string(flow_urn_str),
             name=str(getattr(rule, "name", None) or run.ruleId),
             description=str(getattr(rule, "description", None) or ""),
             properties={PROP_RULE_ID: run.ruleId, PROP_WORKFLOW_URN: wf_urn},
         )
-        template_key = job_urn(wf_urn, run.ruleId)
+        template_key = f"urn:li:dataJob:({flow_urn_str},{run.ruleId})"
         if template_key not in self._templates_emitted:
             flow.emit(self.emitter)
             job.emit(self.emitter)
             self._templates_emitted.add(template_key)
 
         entity_urn = str(entity.get("urn") or "")
-        inlets = [DatasetUrn.from_string(entity_urn)] if entity_urn.startswith("urn:li:dataset:") else []
+        parent_urn = str(((entity.get("parent") or {}) if isinstance(entity.get("parent"), dict) else {}).get("urn") or "")
+        inlet_urn = entity_urn if entity_urn.startswith("urn:li:dataset:") else parent_urn if parent_urn.startswith("urn:li:dataset:") else ""
+        inlets = [DatasetUrn.from_string(inlet_urn)] if inlet_urn else []
+        properties = {
+            PROP_RULE_ID: run.ruleId,
+            PROP_RULE_NAME: str(getattr(rule, "name", None) or run.ruleId),
+            PROP_WORKFLOW_URN: wf_urn,
+            PROP_REQUEST_URN: request_urn,
+            PROP_REQUESTER_URN: "" if is_event_rule else str(requester.get("urn") or ""),
+            PROP_ENTITY_URN: entity_urn,
+            PROP_OPERATION: operation,
+            PROP_RESULT: result,
+            PROP_STATUS: run.status,
+            PROP_REASON: str(run.reason or ""),
+            PROP_TRIGGER_TYPE: "event" if is_event_rule else "workflow",
+            PROP_STEPS: steps_report(run.steps),
+        }
+        if is_event_rule:
+            properties[PROP_CATEGORY] = str(event.get("category") or "")
+            properties[PROP_MODIFIER] = str(event.get("modifier") or "")
+            properties[PROP_ACTOR_URN] = str(event.get("actor") or "")
         instance = DataProcessInstance(
-            id=run_id(run.ruleId, request_urn, operation, result, event_time),
+            id=run_id_for(run.ruleId, context),
             orchestrator=ORCHESTRATOR,
             cluster=ENV,
             type="BATCH_AD_HOC",
             template_urn=DataJobUrn.from_string(template_key),
             inlets=inlets,
-            properties={
-                PROP_RULE_ID: run.ruleId,
-                PROP_RULE_NAME: str(getattr(rule, "name", None) or run.ruleId),
-                PROP_WORKFLOW_URN: wf_urn,
-                PROP_REQUEST_URN: request_urn,
-                PROP_REQUESTER_URN: str(requester.get("urn") or ""),
-                PROP_ENTITY_URN: entity_urn,
-                PROP_OPERATION: operation,
-                PROP_RESULT: result,
-                PROP_STATUS: run.status,
-                PROP_REASON: str(run.reason or ""),
-                PROP_STEPS: steps_report(run.steps),
-            },
+            properties=properties,
         )
         instance.emit_process_start(self.emitter, started_ms, emit_template=False, materialize_iolets=False)
         # The SDK names the instance after its id; users should see the rule's name.

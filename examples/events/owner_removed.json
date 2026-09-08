@@ -1,0 +1,16 @@
+{
+  "auditStamp": {
+    "actor": "urn:li:corpuser:admin",
+    "time": 1754000000000
+  },
+  "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)",
+  "entityType": "dataset",
+  "category": "OWNERSHIP",
+  "operation": "REMOVE",
+  "modifier": "urn:li:corpuser:jdoe",
+  "version": 0,
+  "parameters": {
+    "ownerUrn": "urn:li:corpuser:jdoe",
+    "ownerType": "urn:li:ownershipType:__system__technical_owner"
+  }
+}

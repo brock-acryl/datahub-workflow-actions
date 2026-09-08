@@ -195,7 +195,9 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
             "name": self.effective_pipeline_name(),
             **({"datahub": datahub} if datahub else {}),
             "source": source,
-            "filter": {"event_type": "EntityChangeEvent_v1", "event": {"entityType": "actionRequest", "category": "LIFECYCLE"}},
+            # §21: every change event reaches the action; its EventIndex rejects non-candidates
+            # with one dict lookup, so the (client-side) pipeline filter only narrows the type.
+            "filter": {"event_type": "EntityChangeEvent_v1"},
             "action": {
                 "type": "workflow_actions",
                 "config": {

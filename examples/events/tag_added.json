@@ -1,0 +1,15 @@
+{
+  "auditStamp": {
+    "actor": "urn:li:corpuser:admin",
+    "time": 1754000000000
+  },
+  "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)",
+  "entityType": "dataset",
+  "category": "TAG",
+  "operation": "ADD",
+  "modifier": "urn:li:tag:pii",
+  "version": 0,
+  "parameters": {
+    "tagUrn": "urn:li:tag:pii"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "auditStamp": {
+    "actor": "urn:li:corpuser:__datahub_system",
+    "time": 1754000000000
+  },
+  "entityUrn": "urn:li:assertion:freshness-orders",
+  "entityType": "assertion",
+  "category": "RUN",
+  "operation": "COMPLETED",
+  "version": 0,
+  "parameters": {
+    "assertionResult": "FAILURE",
+    "asserteeUrn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)",
+    "runId": "run-1"
+  }
+}

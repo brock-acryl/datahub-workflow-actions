@@ -1,5 +1,6 @@
 # §21 — rules triggered by DataHub change events, not by a workflow.
 # Validate with:  workflow-actions validate examples/event-rules.yaml
+# Try with:       workflow-actions simulate --rules examples/event-rules.yaml --event examples/events/tag_added.json --fixtures examples/events/fixtures.json
 source:
   type: datahub-workflow-actions
   config:
@@ -45,7 +46,7 @@ source:
             params:
               to: "{{ entity.owners | join(', ') }}"
               subject: "{{ entity.name }} was deprecated"
-              text: "{{ actor.username }} deprecated {{ entity.name }}: {{ change.note }}"
+              body: "{{ actor.username }} deprecated {{ entity.name }}: {{ change.note }}"
 
       - id: propagate-domain-to-downstream
         name: Propagate domain downstream

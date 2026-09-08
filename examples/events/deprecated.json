@@ -1,0 +1,15 @@
+{
+  "auditStamp": {
+    "actor": "urn:li:corpuser:admin",
+    "time": 1754000000000
+  },
+  "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)",
+  "entityType": "dataset",
+  "category": "DEPRECATION",
+  "operation": "MODIFY",
+  "version": 0,
+  "parameters": {
+    "status": "DEPRECATED",
+    "note": "Use db.sales.orders_v2"
+  }
+}

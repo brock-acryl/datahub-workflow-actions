@@ -36,7 +36,7 @@ pip install datahub-workflow-actions          # also registers the `datahub-work
 **From an ingestion recipe (what the MFE writes)** — see `examples/recipe.yaml`. The source starts a datahub-actions pipeline
 in-process (Kafka `EntityChangeEvent_v1` → `workflow_actions`) and runs until stopped. Set the executor for the
 "Workflow Actions" ingestion source and add this package as an extra pip requirement
-(`extra_pip_requirements: ["datahub-workflow-actions==0.4.0"]`, or a wheel path/URL the executor can reach).
+(`extra_pip_requirements: ["datahub-workflow-actions==0.5.0"]`, or a wheel path/URL the executor can reach).
 Inside the executor the source takes its Kafka connection from `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`
 and its DataHub connection from the ingestion context (else `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`), so no
 connection config is needed in the recipe. If the executor cannot build dynamic venvs (dev images), install the
@@ -164,6 +164,56 @@ steps:
     batch: { size: 100 }
     params: { entity: "{{ item.urn }}", tag: "urn:li:tag:governed" }
 ```
+
+## Event triggers (§21)
+
+A rule does not need a workflow. Set `on.type: event` and the rule fires on any
+`EntityChangeEvent` GMS emits — tags, terms, owners, domains, deprecation, structured
+properties, schema changes, documentation, assertion runs, incidents, proposals:
+
+```yaml
+rules:
+  - id: pii-term
+    "on":
+      type: event
+      category: TAG             # see `workflow-actions triggers` for the vocabulary
+      operations: [ADD]         # empty = any
+      entityTypes: [dataset]    # as the event names them; empty = any
+      modifier: { values: ["urn:li:tag:pii"] }        # the tag / term / owner / domain / property urn
+      parameters: []            # filters into the decoded event parameters, e.g. {field: status, values: [DEPRECATED]}
+      ignoreOwnChanges: true    # default: skip changes this engine made itself
+    steps:
+      - id: term
+        type: add_term
+        params: { entity: "{{ entity.urn }}", term: "urn:li:glossaryTerm:Sensitive" }
+```
+
+Every change event reaches the action (the pipeline filter only narrows to
+`EntityChangeEvent_v1`); an in-memory `EventIndex` bucketed by category rejects
+non-candidates with one dict lookup — no GraphQL call happens unless a trigger matches. The
+index is rebuilt on every hot reload.
+
+Event rules run against an **event-shaped context** — there is no `workflow`, `request`,
+`requester`, `approver` or `form` (a template that reaches for them fails loudly):
+
+| key | contents |
+|---|---|
+| `event` | `type, id, category, operation, modifier, entityType, entityUrn, parameters, time, actor` |
+| `entity` | the changed asset (`urn, type, name, platform, description, tags, terms, owners, domain`), plus `parent{urn}` and `fieldPath` for schema-field events |
+| `actor` | who made the change (`urn, username, email, name, groups`) |
+| `change` | a stable vocabulary over what changed — every key always present: `tag, term, owner, ownerType, domain, property, values, status, note, description, previousDescription, modificationCategory, businessAttribute, result, runId, assertee, incident{type,title,stage,entities}, parent, field, subject{urn,type,name}` |
+| `params` | the decoded event parameters (JSON-encoded values are parsed) |
+
+**Feedback loops.** The engine resolves the user it writes as (`{ me { corpUser { urn } } }`)
+once and, with `ignoreOwnChanges: true` (the default), drops events whose actor is that user,
+so a rule that adds a tag cannot re-trigger itself. Caveat: if a person shares the engine's
+token, their changes are treated as the engine's too — set `ignoreOwnChanges: false` on rules
+that must see them. `workflow-actions simulate --own-actor <urn>` reproduces the guard offline.
+
+Run history for event rules lives under `urn:li:dataFlow:(workflow-actions,events,PROD)`
+(one DataJob per rule) with `triggerType=event`, `category`, `modifier` and `actorUrn`
+properties; the idempotency id is `entityUrn:category:operation:modifier:time`. Sample events
+for `simulate` are in `examples/events/`; `examples/event-rules.yaml` shows three rules.
 
 ## How the engine listens (Kafka or the DataHub Cloud Events API)
 

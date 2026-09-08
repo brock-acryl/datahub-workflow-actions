@@ -1,0 +1,39 @@
+{
+  "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)": {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,db.sales.orders,PROD)",
+    "type": "DATASET",
+    "name": "db.sales.orders",
+    "properties": {
+      "name": "Orders",
+      "description": "Sales orders"
+    },
+    "platform": {
+      "name": "snowflake",
+      "properties": {
+        "displayName": "Snowflake"
+      }
+    },
+    "ownership": {
+      "owners": [
+        {
+          "owner": {
+            "urn": "urn:li:corpuser:jdoe"
+          }
+        }
+      ]
+    },
+    "domain": {
+      "domain": {
+        "urn": "urn:li:domain:sales"
+      }
+    }
+  },
+  "urn:li:corpuser:admin": {
+    "urn": "urn:li:corpuser:admin",
+    "username": "admin",
+    "properties": {
+      "displayName": "DataHub Admin",
+      "email": "admin@example.com"
+    }
+  }
+}
