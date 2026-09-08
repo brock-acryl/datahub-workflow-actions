@@ -110,3 +110,31 @@ def test_consumer_group_is_per_executor(monkeypatch):
     assert src.effective_pipeline_name() == "workflow-actions-remote-7"
     src = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate({**RULES, "pipelineName": "custom"}), _Ctx(None))
     assert src.effective_pipeline_name() == "custom"
+
+
+def test_event_source_auto_picks_kafka_with_a_broker_else_the_cloud_events_api(monkeypatch):
+    for key in ("KAFKA_BOOTSTRAP_SERVER", "DATAHUB_EXECUTOR_INTERNAL_TOPIC", "DATAHUB_GMS_URL", "DATAHUB_GMS_HOST", "DATAHUB_EXECUTOR_WORKER_ID"):
+        monkeypatch.delenv(key, raising=False)
+    ctx = _Ctx(_Graph(server="https://acme.acryl.io/gms", token="t"))
+    remote = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate({**RULES, "executorId": "vpc-1"}), ctx)
+    assert remote.resolve_event_source() == "datahub-cloud"
+    cfg = remote.actions_pipeline_config()
+    assert cfg["source"] == {
+        "type": "datahub-cloud",
+        "config": {"topics": "PlatformEvent_v1", "event_processing_time_max_duration_seconds": 900},
+    }
+    assert cfg["name"] == "workflow-actions-vpc-1"  # the Events API stores offsets under this consumer id
+    assert cfg["datahub"]["server"] == "https://acme.acryl.io/gms"
+
+    monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVER", "broker:29092")
+    hosted = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate(RULES), ctx)
+    assert hosted.resolve_event_source() == "kafka"
+    assert hosted.actions_pipeline_config()["source"]["type"] == "kafka"
+
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVER")
+    explicit_kafka = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate({**RULES, "kafka": {"connection": {"bootstrap": "k:9092"}}}), ctx)
+    assert explicit_kafka.resolve_event_source() == "kafka"
+    forced = WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate({**RULES, "eventSource": "datahub-cloud", "cloudEvents": {"lookback_days": 1}}), ctx)
+    assert forced.event_source_config()["config"]["lookback_days"] == 1
+    monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVER", "broker:29092")
+    assert WorkflowActionsSource(WorkflowActionsSourceConfig.model_validate({**RULES, "eventSource": "datahub-cloud"}), ctx).resolve_event_source() == "datahub-cloud"

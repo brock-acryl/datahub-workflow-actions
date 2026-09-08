@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 import logging
-from typing import Any, Dict, Iterable, Optional
+from typing import Literal, Any, Dict, Iterable, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -108,6 +108,13 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
         description="datahub-actions pipeline name — also the Kafka consumer group. Default: workflow-actions-<executorId>, so each executor's engine gets its own group and sees every event.",
     )
     executorId: Optional[str] = Field(None, description="Executor pool this source runs on (the MFE writes it); falls back to DATAHUB_EXECUTOR_WORKER_ID.")
+    eventSource: Literal["auto", "kafka", "datahub-cloud"] = Field(
+        "auto",
+        description="How the engine listens. kafka: subscribe to DataHub's broker (needs network access to it). datahub-cloud: poll GMS's Events API over HTTPS (works from a remote executor). auto: kafka when a broker is configured (recipe `kafka` block or KAFKA_BOOTSTRAP_SERVER), else datahub-cloud.",
+    )
+    cloudEvents: Optional[Dict[str, Any]] = Field(
+        None, description="Overrides for the datahub-cloud event source (lookback_days, reset_offsets, …)."
+    )
     reloadIntervalSeconds: float = Field(
         30.0, ge=0, description="How often the running engine re-reads its recipe from DataHub and hot-swaps rules/connections/templates. 0 disables."
     )
@@ -154,10 +161,36 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
         name = getattr(getattr(self, "ctx", None), "pipeline_name", None)
         return name if isinstance(name, str) and name.startswith("urn:li:dataHubIngestionSource:") else None
 
+    def resolve_event_source(self) -> str:
+        """Mirror the executor's own rule: direct Kafka when a broker is reachable, else the Events API."""
+        if self.config.eventSource != "auto":
+            return self.config.eventSource
+        if self.config.kafka or os.environ.get("KAFKA_BOOTSTRAP_SERVER") or os.environ.get("DATAHUB_EXECUTOR_INTERNAL_TOPIC"):
+            return "kafka"
+        return "datahub-cloud"
+
+    def event_source_config(self) -> Dict[str, Any]:
+        if self.resolve_event_source() == "kafka":
+            kafka = with_consumer_defaults(self.config.kafka) if self.config.kafka else default_kafka_config()
+            return {"type": "kafka", "config": kafka}
+        # datahub-actions' DataHubEventSource: polls GMS /openapi/v1/events/poll with the pipeline's
+        # graph; offsets are stored server-side under the pipeline name (our per-executor group).
+        # It aborts the pipeline if an event isn't acked within event_processing_time_max_duration_seconds
+        # (default 60 s) — the Events-API twin of Kafka's poll ceiling — so allow the same 15 minutes.
+        return {
+            "type": "datahub-cloud",
+            "config": {
+                "topics": "PlatformEvent_v1",
+                "event_processing_time_max_duration_seconds": int(MAX_POLL_INTERVAL_MS) // 1000,
+                **(self.config.cloudEvents or {}),
+            },
+        }
+
     def actions_pipeline_config(self) -> Dict[str, Any]:
-        kafka = with_consumer_defaults(self.config.kafka) if self.config.kafka else default_kafka_config()
-        source: Dict[str, Any] = {"type": "kafka", "config": kafka}
+        source = self.event_source_config()
         datahub = self.datahub_client_config()
+        if source["type"] == "datahub-cloud" and not datahub:
+            logger.warning("workflow-actions: the datahub-cloud event source needs a DataHub connection (none found)")
         return {
             "name": self.effective_pipeline_name(),
             **({"datahub": datahub} if datahub else {}),
@@ -184,9 +217,11 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
         if "datahub" not in pipeline_config:
             logger.warning("workflow-actions: no DataHub connection available — steps will run without writing to DataHub")
         logger.info(
-            "workflow-actions: starting actions pipeline with %s rule(s) against %s",
+            "workflow-actions: starting actions pipeline with %s rule(s) against %s — listening via %s as %s",
             len(self.rules.rules),
             (pipeline_config.get("datahub") or {}).get("server", "no DataHub"),
+            pipeline_config["source"]["type"],
+            pipeline_config["name"],
         )
         pipeline = Pipeline.create(pipeline_config)
         watcher = self._start_recipe_watcher(pipeline)

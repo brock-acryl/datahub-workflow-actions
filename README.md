@@ -36,7 +36,7 @@ pip install datahub-workflow-actions          # also registers the `datahub-work
 **From an ingestion recipe (what the MFE writes)** — see `examples/recipe.yaml`. The source starts a datahub-actions pipeline
 in-process (Kafka `EntityChangeEvent_v1` → `workflow_actions`) and runs until stopped. Set the executor for the
 "Workflow Actions" ingestion source and add this package as an extra pip requirement
-(`extra_pip_requirements: ["datahub-workflow-actions==0.3.0"]`, or a wheel path/URL the executor can reach).
+(`extra_pip_requirements: ["datahub-workflow-actions==0.4.0"]`, or a wheel path/URL the executor can reach).
 Inside the executor the source takes its Kafka connection from `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`
 and its DataHub connection from the ingestion context (else `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`), so no
 connection config is needed in the recipe. If the executor cannot build dynamic venvs (dev images), install the
@@ -164,6 +164,21 @@ steps:
     batch: { size: 100 }
     params: { entity: "{{ item.urn }}", tag: "urn:li:tag:governed" }
 ```
+
+## How the engine listens (Kafka or the DataHub Cloud Events API)
+
+Cloud offers two transports and the engine picks the way the executor itself does (`eventSource: auto`):
+
+- **kafka** — subscribe to DataHub's broker directly. Chosen when a broker is configured (a `kafka`
+  block in the recipe, or `KAFKA_BOOTSTRAP_SERVER` / `DATAHUB_EXECUTOR_INTERNAL_TOPIC` in the
+  environment — the hosted executor).
+- **datahub-cloud** — poll GMS's Events API (`/openapi/v1/events/poll`) over HTTPS with the same
+  DataHub connection the steps use. Chosen when no broker is reachable — a remote executor in your
+  network. Offsets live server-side under the pipeline name, so each executor's engine has its own
+  position. Its "all events acked within N seconds" guard is set to 15 minutes to match the Kafka
+  poll ceiling; tune with `cloudEvents` (e.g. `lookback_days`, `reset_offsets`).
+
+Force either with `eventSource: kafka | datahub-cloud`.
 
 ## Hot reload, consumer group and poll interval
 
