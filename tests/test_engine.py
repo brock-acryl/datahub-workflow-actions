@@ -368,7 +368,7 @@ def test_branch_runs_the_matching_lane_records_the_other_as_skipped_and_rejoins(
     run = Engine().run(config, context)[0]
     assert [(s.stepId, s.status) for s in run.steps] == [("b", "ok"), ("no", "skipped"), ("yes", "ok"), ("after", "ok")]
     branch = run.steps[0]
-    assert branch.type == "branch" and branch.output == {"taken": "then", "matched": True} and "Yes" in branch.reason
+    assert branch.type == "branch" and branch.output == {"taken": "then", "matched": True} and "Matches lane" in branch.reason
     assert run.steps[1].reason == "branch 'b' took then"
     # the dead lane's step is addressable from later templates
     assert CALLS == ["yes", "skipped"] and run.status == "ok"
@@ -378,7 +378,7 @@ def test_branch_takes_else_when_the_condition_fails(context):
     CALLS.clear()
     run = Engine().run(cfg(rule(steps=[_branch("chart", [_rec("yes")], [_rec("no")])])), context)[0]
     assert [(s.stepId, s.status) for s in run.steps] == [("b", "ok"), ("yes", "skipped"), ("no", "ok")]
-    assert run.steps[0].output["taken"] == "else" and "No" in run.steps[0].reason and CALLS == ["no"]
+    assert run.steps[0].output["taken"] == "else" and "Otherwise lane" in run.steps[0].reason and CALLS == ["no"]
 
 
 def test_nested_branches_and_dead_lanes_skip_their_whole_subtree(context):

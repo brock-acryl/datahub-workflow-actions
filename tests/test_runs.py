@@ -208,10 +208,10 @@ def test_schedule_rules_record_under_the_schedules_flow():
 
 def test_steps_report_keeps_branch_rows():
     steps = [
-        StepRun(stepId="b", type="branch", status="ok", reason="condition matched → Yes", output={"taken": "then", "matched": True}),
+        StepRun(stepId="b", type="branch", status="ok", reason="condition matched → Matches lane", output={"taken": "then", "matched": True}),
         StepRun(stepId="no", type="add_tag", status="skipped", reason="branch 'b' took then"),
         StepRun(stepId="yes", type="add_tag", status="ok", attempts=1, output={"added": True}),
     ]
     rows = json.loads(steps_report(steps))
-    assert rows[0] == {"id": "b", "type": "branch", "status": "ok", "attempts": 0, "reason": "condition matched → Yes", "output": {"taken": "then", "matched": True}}
+    assert rows[0] == {"id": "b", "type": "branch", "status": "ok", "attempts": 0, "reason": "condition matched → Matches lane", "output": {"taken": "then", "matched": True}}
     assert rows[1]["reason"] == "branch 'b' took then" and "output" not in rows[1]

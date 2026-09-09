@@ -207,7 +207,7 @@ class Engine:
             step.id,
             BRANCH_STEP_TYPE,
             "dry-run" if self.dry_run else "ok",
-            reason=f"condition {'matched → Yes' if matched else 'not matched → No'}",
+            reason=f"condition {'matched → Matches lane' if matched else 'not matched → Otherwise lane'}",
             output={"taken": lane, "matched": matched},
         )
         run.steps.append(branch_run)
