@@ -347,3 +347,83 @@ def test_trigger_matches_dispatches_on_trigger_type(context):
     from datahub_workflow_actions.contract import Rule
 
     assert trigger_matches(Rule.model_validate(rule()), {"event": _view()}) == "event has no workflow urn"
+
+
+# ---------------------------------------------------------------------------
+# §22 branches
+# ---------------------------------------------------------------------------
+
+
+def _branch(cond_value, then, else_, **extra):
+    return {"id": extra.pop("id", "b"), "type": "branch", "if": {"operator": "AND", "filters": [{"field": "entity.type", "values": [cond_value]}]}, "then": then, "else": else_, **extra}
+
+
+def _rec(step_id, value=None):
+    return {"id": step_id, "type": "_record", "params": {"value": value or step_id}}
+
+
+def test_branch_runs_the_matching_lane_records_the_other_as_skipped_and_rejoins(context):
+    CALLS.clear()
+    config = cfg(rule(steps=[_branch("dataset", [_rec("yes")], [_rec("no")]), _rec("after", "{{ steps.no.status }}")]))
+    run = Engine().run(config, context)[0]
+    assert [(s.stepId, s.status) for s in run.steps] == [("b", "ok"), ("no", "skipped"), ("yes", "ok"), ("after", "ok")]
+    branch = run.steps[0]
+    assert branch.type == "branch" and branch.output == {"taken": "then", "matched": True} and "Yes" in branch.reason
+    assert run.steps[1].reason == "branch 'b' took then"
+    # the dead lane's step is addressable from later templates
+    assert CALLS == ["yes", "skipped"] and run.status == "ok"
+
+
+def test_branch_takes_else_when_the_condition_fails(context):
+    CALLS.clear()
+    run = Engine().run(cfg(rule(steps=[_branch("chart", [_rec("yes")], [_rec("no")])])), context)[0]
+    assert [(s.stepId, s.status) for s in run.steps] == [("b", "ok"), ("yes", "skipped"), ("no", "ok")]
+    assert run.steps[0].output["taken"] == "else" and "No" in run.steps[0].reason and CALLS == ["no"]
+
+
+def test_nested_branches_and_dead_lanes_skip_their_whole_subtree(context):
+    CALLS.clear()
+    inner = _branch("dataset", [_rec("deep")], [_rec("deeper")], id="inner")
+    run = Engine().run(cfg(rule(steps=[_branch("chart", [inner, _rec("y")], [_rec("n")]), _rec("end")])), context)[0]
+    statuses = {s.stepId: s.status for s in run.steps}
+    assert statuses == {"b": "ok", "inner": "skipped", "deep": "skipped", "deeper": "skipped", "y": "skipped", "n": "ok", "end": "ok"}
+    assert CALLS == ["n", "end"]
+    # and the nested branch runs when its lane is taken
+    CALLS.clear()
+    run = Engine().run(cfg(rule(steps=[_branch("dataset", [inner, _rec("y")], [_rec("n")])])), context)[0]
+    assert [s.stepId for s in run.steps if s.status == "ok"] == ["b", "inner", "deep", "y"] and CALLS == ["deep", "y"]
+
+
+def test_failures_inside_a_lane_follow_the_error_policy(context):
+    for policy, expected_status, ran_after in (("fail", "failed", False), ("stop", "stopped", False), ("continue", "ok", True)):
+        CALLS.clear()
+        failing = {"id": "boom", "type": "_record", "params": {"value": "boom", "fail_times": 5}}
+        run = Engine().run(cfg(rule(onError=policy, steps=[_branch("dataset", [failing, _rec("in-lane")], [_rec("no")]), _rec("after")])), context)[0]
+        assert run.status == expected_status, policy
+        assert ("after" in CALLS) is ran_after, policy
+        assert ("in-lane" in CALLS) is ran_after, policy
+        if not ran_after:
+            assert run.reason.startswith("step 'boom' failed") and [s.stepId for s in run.steps] == ["b", "no", "boom"]
+
+
+def test_disabled_or_gated_branch_skips_both_lanes(context):
+    CALLS.clear()
+    gated = _branch("dataset", [_rec("yes")], [_rec("no")], when={"operator": "AND", "filters": [{"field": "entity.type", "values": ["chart"]}]})
+    run = Engine().run(cfg(rule(steps=[gated, _rec("after")])), context)[0]
+    assert [(s.stepId, s.status, s.reason) for s in run.steps][:3] == [("b", "skipped", "conditions not met"), ("yes", "skipped", "branch 'b' skipped"), ("no", "skipped", "branch 'b' skipped")]
+    assert CALLS == ["after"]
+    CALLS.clear()
+    run = Engine().run(cfg(rule(steps=[_branch("dataset", [_rec("yes")], [], enabled=False)])), context)[0]
+    assert run.steps[0].reason == "disabled" and CALLS == []
+
+
+def test_branch_is_idempotent_on_replay_and_dry_run(context):
+    CALLS.clear()
+    engine = Engine()
+    config = cfg(rule(steps=[_branch("dataset", [_rec("yes")], [])]))
+    engine.run(config, context)
+    replay = engine.run(config, context)[0]
+    assert replay.steps[0].status == "ok"  # the branch row itself never reports "already ran"
+    assert replay.steps[1].status == "skipped" and "idempotency" in replay.steps[1].reason
+    dry = Engine(dry_run=True).run(config, context)[0]
+    assert dry.steps[0].status == "dry-run" and dry.steps[0].output["taken"] == "then" and dry.steps[1].status == "dry-run"

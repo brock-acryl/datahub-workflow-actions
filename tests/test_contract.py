@@ -216,3 +216,76 @@ def test_schedule_trigger_parses_and_validates():
         load_rules({"schemaVersion": 1, "rules": [{"id": "x", "workflowUrn": "urn:li:actionWorkflow:w", "on": {"type": "schedule", "cron": "* * * * *"}}]})
     schema = rules_json_schema()
     assert "ScheduleTrigger" in schema["$defs"] and schema["$defs"]["ScheduleTrigger"]["properties"]["cron"]
+
+
+# ---------------------------------------------------------------------------
+# §22 branches
+# ---------------------------------------------------------------------------
+
+BRANCH = {
+    "id": "b", "type": "branch",
+    "if": {"operator": "AND", "filters": [{"field": "entity.platform", "values": ["Snowflake"]}]},
+    "then": [{"id": "yes", "type": "add_tag", "params": {"tag": "urn:li:tag:snow"}}],
+    "else": [{"id": "no", "type": "add_tag", "params": {"tag": "urn:li:tag:other"}}],
+}
+
+
+def branch_rule(*steps):
+    return load_rules({"schemaVersion": 1, "rules": [{"id": "r", "workflowUrn": "urn:li:actionWorkflow:w", "on": {"operation": "CREATE"}, "steps": list(steps)}]}).rules[0]
+
+
+def test_branch_parses_by_alias_and_by_attribute_and_round_trips():
+    rule = branch_rule(BRANCH, {"id": "after", "type": "wait", "params": {"seconds": 1}})
+    b = rule.steps[0]
+    assert b.is_branch and b.if_.filters[0].field == "entity.platform"
+    assert [s.id for s in b.then_steps] == ["yes"] and [s.id for s in b.else_steps] == ["no"]
+    assert [s.id for s in rule.all_steps()] == ["b", "yes", "no", "after"]
+    # python attribute names work too, and dumps use the recipe spelling
+    by_attr = load_rules({"schemaVersion": 1, "rules": [{"id": "r", "workflowUrn": "urn:li:actionWorkflow:w", "on": {"operation": "CREATE"},
+        "steps": [{"id": "b", "type": "branch", "if_": BRANCH["if"], "then": [], "else_": []}]}]}).rules[0]
+    dumped = by_attr.steps[0].model_dump(exclude_none=True, by_alias=True)
+    assert "if" in dumped and "if_" not in dumped and dumped["then"] == [] and dumped["else"] == []
+    # a plain step dumps without branch keys at all
+    assert "then" not in rule.steps[1].model_dump(exclude_none=True, by_alias=True)
+
+
+def test_nested_branches_and_depth_limit():
+    def nest(depth):
+        step = {"id": f"leaf{depth}", "type": "wait", "params": {"seconds": 1}}
+        for level in range(depth, 0, -1):
+            step = {"id": f"b{level}", "type": "branch", "if": BRANCH["if"], "then": [step], "else": []}
+        return step
+    rule = branch_rule(nest(5))
+    assert [d for _, d, _ in __import__("datahub_workflow_actions.contract", fromlist=["iter_steps"]).iter_steps(rule.steps)] == [0, 1, 2, 3, 4, 5]
+    with pytest.raises(ValidationError, match="nested deeper than 5"):
+        branch_rule(nest(6))
+    # the lane path is reported
+    from datahub_workflow_actions.contract import iter_steps
+    paths = {s.id: p for s, _, p in iter_steps(branch_rule(BRANCH).steps)}
+    assert paths["no"] == ("b", "else") and paths["yes"] == ("b", "then") and paths["b"] == ()
+
+
+def test_branch_constraints():
+    with pytest.raises(ValidationError, match="a branch has no params"):
+        branch_rule({**BRANCH, "params": {"x": 1}})
+    with pytest.raises(ValidationError, match="`forEach` does not apply"):
+        branch_rule({**BRANCH, "forEach": "{{ entity.owners }}"})
+    with pytest.raises(ValidationError, match="`retry` does not apply"):
+        branch_rule({**BRANCH, "retry": {"attempts": 2}})
+    with pytest.raises(ValidationError, match="at least one condition"):
+        branch_rule({**BRANCH, "if": {"operator": "AND", "filters": []}})
+    with pytest.raises(ValidationError, match="at least one condition"):
+        branch_rule({k: v for k, v in BRANCH.items() if k != "if"})
+    with pytest.raises(ValidationError, match="only apply to `type: branch`"):
+        branch_rule({"id": "x", "type": "wait", "params": {"seconds": 1}, "then": []})
+    with pytest.raises(ValidationError, match="duplicate step id 'no'"):
+        branch_rule(BRANCH, {"id": "no", "type": "wait", "params": {"seconds": 1}})
+    # lanes may be empty (the builder warns, the engine just continues)
+    assert branch_rule({**BRANCH, "then": [], "else": []}).steps[0].then_steps == []
+
+
+def test_schema_publishes_a_recursive_step():
+    step = rules_json_schema()["$defs"]["Step"]
+    assert set(step["properties"]) >= {"if", "then", "else"}
+    assert step["properties"]["then"]["anyOf"][0]["items"] == {"$ref": "#/$defs/Step"}
+    assert "if_" not in step["properties"] and "else_" not in step["properties"]

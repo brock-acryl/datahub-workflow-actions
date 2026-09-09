@@ -78,7 +78,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
     known = set(known_step_types())
     for rule in config.rules:
-        for step in rule.steps:
+        for step in rule.all_steps():
+            if step.is_branch:
+                continue  # evaluated by the engine, not a catalog step
             if step.type not in known:
                 unknown.append(f"{rule.id}/{step.id}: unknown step type '{step.type}'")
                 continue
@@ -114,7 +116,7 @@ def _connection_problems(raw: Any, config: RulesConfig) -> list:
     problems = list(validate_connections(declared))
     names = set(parse_connections(declared)) if declared else None
     for rule in config.rules:
-        for step in rule.steps:
+        for step in rule.all_steps():
             if step.type != "sql":
                 continue
             name = (step.params or {}).get("connection")

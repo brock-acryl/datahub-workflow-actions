@@ -5,7 +5,7 @@ vendors; ``load_rules()`` accepts the recipe root, a bare config, or a list."""
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -154,9 +154,18 @@ class BatchPolicy(StrictModel):
     size: int = Field(100, ge=1, le=1000, description="Max items per merged call.")
 
 
+BRANCH_STEP_TYPE = "branch"
+MAX_BRANCH_DEPTH = 5
+
+
 class Step(StrictModel):
+    """One step of a rule. ``type: branch`` is not a catalog step: it evaluates ``if`` and runs
+    either ``then`` or ``else`` (each a list of steps, nesting allowed), then the rule continues."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
     id: str = Field(min_length=1)
-    type: str = Field(min_length=1, description="A step type from the catalog (add_tag, webhook, …).")
+    type: str = Field(min_length=1, description="A step type from the catalog (add_tag, webhook, …), or `branch`.")
     params: Dict[str, Any] = Field(default_factory=dict, description="Templated values ({{ path }}).")
     description: Optional[str] = None
     enabled: bool = True
@@ -176,6 +185,50 @@ class Step(StrictModel):
     idempotencyKey: Optional[str] = Field(
         None, description="Template; defaults to event id + rule id + step id (+ item index)."
     )
+    if_: Optional[FilterGroup] = Field(
+        None, alias="if", description="Branch steps only: the condition that picks `then` (true) or `else` (false)."
+    )
+    then: Optional[List["Step"]] = Field(None, description="Branch steps only: steps run when `if` holds.")
+    else_: Optional[List["Step"]] = Field(None, alias="else", description="Branch steps only: steps run when `if` does not hold.")
+
+    @property
+    def is_branch(self) -> bool:
+        return self.type == BRANCH_STEP_TYPE
+
+    @property
+    def then_steps(self) -> List["Step"]:
+        return self.then or []
+
+    @property
+    def else_steps(self) -> List["Step"]:
+        return self.else_ or []
+
+    @model_validator(mode="after")
+    def _check_branch(self) -> "Step":
+        if self.type == BRANCH_STEP_TYPE:
+            if self.params:
+                raise ValueError(f"step '{self.id}': a branch has no params")
+            for name in ("forEach", "itemWhen", "batch", "retry", "timeoutSeconds", "idempotencyKey"):
+                if getattr(self, name) is not None:
+                    raise ValueError(f"step '{self.id}': `{name}` does not apply to a branch")
+            if self.if_ is None or not self.if_.filters:
+                raise ValueError(f"step '{self.id}': a branch needs at least one condition under `if`")
+        elif self.if_ is not None or self.then is not None or self.else_ is not None:
+            raise ValueError(f"step '{self.id}': `if` / `then` / `else` only apply to `type: branch`")
+        return self
+
+
+Step.model_rebuild()
+
+
+def iter_steps(steps: List[Step], depth: int = 0, path: Tuple[str, ...] = ()) -> Iterator[Tuple[Step, int, Tuple[str, ...]]]:
+    """Every step depth-first, with its nesting depth and the lane path that leads to it
+    (``("b1", "then", "b2", "else")``). Top-level steps are depth 0."""
+    for step in steps:
+        yield step, depth, path
+        if step.type == BRANCH_STEP_TYPE:
+            yield from iter_steps(step.then_steps, depth + 1, path + (step.id, "then"))
+            yield from iter_steps(step.else_steps, depth + 1, path + (step.id, "else"))
 
 
 class Rule(StrictModel):
@@ -208,11 +261,16 @@ class Rule(StrictModel):
         if self.on.type != "workflow" and self.workflowUrn:
             raise ValueError(f"rule '{self.id}': {self.on.type} rules have no workflowUrn")
         seen = set()
-        for step in self.steps:
+        for step, depth, path in iter_steps(self.steps):
             if step.id in seen:
-                raise ValueError(f"rule '{self.id}': duplicate step id '{step.id}'")
+                raise ValueError(f"rule '{self.id}': duplicate step id '{step.id}' (step ids are unique across branches)")
             seen.add(step.id)
+            if depth > MAX_BRANCH_DEPTH:
+                raise ValueError(f"rule '{self.id}': step '{step.id}' is nested deeper than {MAX_BRANCH_DEPTH} branches")
         return self
+
+    def all_steps(self) -> List[Step]:
+        return [step for step, _depth, _path in iter_steps(self.steps)]
 
 
 class RulesConfig(BaseModel):

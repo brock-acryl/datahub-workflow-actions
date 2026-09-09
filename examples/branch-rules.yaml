@@ -1,0 +1,32 @@
+# §22 — a branch: one lane runs when the condition holds, the other otherwise, then the rule continues.
+# Try:  workflow-actions simulate --rules examples/branch-rules.yaml --event examples/events/tag_added.json --fixtures examples/events/fixtures.json
+source:
+  type: datahub-workflow-actions
+  config:
+    schemaVersion: 1
+    rules:
+      - id: pii-by-platform
+        name: PII handling depends on the platform
+        "on":
+          type: event
+          category: TAG
+          operations: [ADD]
+          modifier: { values: ["urn:li:tag:pii"] }
+        steps:
+          - id: platform
+            type: branch
+            "if":
+              operator: AND
+              filters:
+                - { field: entity.platform, values: [Snowflake] }
+            then:
+              - id: steward
+                type: add_owner
+                params: { entity: "{{ entity.urn }}", owner: "urn:li:corpGroup:governance", ownershipType: DATA_STEWARD }
+            else:
+              - id: ask
+                type: slack
+                params: { channel: "#data-governance", text: "PII tagged on {{ entity.name }} ({{ entity.platform }}) — review needed" }
+          - id: done
+            type: webhook
+            params: { url: "https://hooks.example/pii", method: GET }

@@ -18,7 +18,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-from datahub_workflow_actions.contract import EventTrigger, Filter, Rule, RulesConfig, ScheduleTrigger, Step, ValueMatch
+from datahub_workflow_actions.contract import BRANCH_STEP_TYPE, EventTrigger, Filter, Rule, RulesConfig, ScheduleTrigger, Step, ValueMatch
 from datahub_workflow_actions.filters import _matches_one, evaluate, evaluate_filter
 from datahub_workflow_actions.state import InMemoryStateStore
 from datahub_workflow_actions.steps import RunContext, get_step
@@ -161,30 +161,83 @@ class Engine:
         run = RuleRun(rule.id, True, status="dry-run" if self.dry_run else "ok")
         outputs: Dict[str, Any] = {}
         rule_context: Dict[str, Any] = {**context, "steps": outputs, "rule": {"id": rule.id, "name": rule.name}}
-        for step in rule.steps:
-            step_run = self.run_step(rule, step, rule_context)
+        self._run_steps(rule, rule.steps, rule_context, run, outputs)
+        return run
+
+    @staticmethod
+    def _record(outputs: Dict[str, Any], step: Step, step_run: StepRun) -> None:
+        outputs[step.id] = {
+            "status": step_run.status,
+            "output": step_run.output,
+            "items": [asdict(i) for i in step_run.items] if step_run.items else None,
+        }
+
+    def _run_steps(self, rule: Rule, steps: List[Step], context: Mapping[str, Any], run: RuleRun, outputs: Dict[str, Any]) -> bool:
+        """Runs `steps` in order, appending every StepRun flat to `run.steps`. Returns False when
+        a failure's error policy stops the rule (the caller must stop too)."""
+        for step in steps:
+            if step.type == BRANCH_STEP_TYPE:
+                if not self._run_branch(rule, step, context, run, outputs):
+                    return False
+                continue
+            step_run = self.run_step(rule, step, context)
             run.steps.append(step_run)
-            outputs[step.id] = {
-                "status": step_run.status,
-                "output": step_run.output,
-                "items": [asdict(i) for i in step_run.items] if step_run.items else None,
-            }
+            self._record(outputs, step, step_run)
             if step_run.status in ("failed", "timed-out"):
                 policy = step.onError or rule.onError
                 if policy == "continue":
                     continue
                 run.status = "stopped" if policy == "stop" else "failed"
                 run.reason = f"step '{step.id}' {step_run.status}: {step_run.error}"
-                break
-        return run
+                return False
+        return True
 
-    # ---- steps ------------------------------------------------------------
+    def _run_branch(self, rule: Rule, step: Step, context: Mapping[str, Any], run: RuleRun, outputs: Dict[str, Any]) -> bool:
+        """if/else block: one lane runs, the other is recorded as skipped so every step id is
+        present under `steps.<id>` (templates use StrictUndefined); then the rule continues."""
+        gate = self._gate(step, context)
+        if gate is not None:
+            run.steps.append(gate)
+            self._record(outputs, step, gate)
+            self._record_skipped(step.then_steps + step.else_steps, run, outputs, f"branch '{step.id}' skipped")
+            return True
+        matched = evaluate(step.if_, context)
+        taken, other, lane = (step.then_steps, step.else_steps, "then") if matched else (step.else_steps, step.then_steps, "else")
+        branch_run = StepRun(
+            step.id,
+            BRANCH_STEP_TYPE,
+            "dry-run" if self.dry_run else "ok",
+            reason=f"condition {'matched → Yes' if matched else 'not matched → No'}",
+            output={"taken": lane, "matched": matched},
+        )
+        run.steps.append(branch_run)
+        self._record(outputs, step, branch_run)
+        self._record_skipped(other, run, outputs, f"branch '{step.id}' took {lane}")
+        return self._run_steps(rule, taken, context, run, outputs)
 
-    def run_step(self, rule: Rule, step: Step, context: Mapping[str, Any]) -> StepRun:
+    def _record_skipped(self, steps: List[Step], run: RuleRun, outputs: Dict[str, Any], reason: str) -> None:
+        for step in steps:
+            step_run = StepRun(step.id, step.type, "skipped", reason=reason)
+            run.steps.append(step_run)
+            self._record(outputs, step, step_run)
+            if step.type == BRANCH_STEP_TYPE:
+                self._record_skipped(step.then_steps + step.else_steps, run, outputs, reason)
+
+    @staticmethod
+    def _gate(step: Step, context: Mapping[str, Any]) -> Optional[StepRun]:
+        """The skip reasons every step shares: disabled, or its `when` does not hold."""
         if not step.enabled:
             return StepRun(step.id, step.type, "skipped", reason="disabled")
         if step.when is not None and not evaluate(step.when, context):
             return StepRun(step.id, step.type, "skipped", reason="conditions not met")
+        return None
+
+    # ---- steps ------------------------------------------------------------
+
+    def run_step(self, rule: Rule, step: Step, context: Mapping[str, Any]) -> StepRun:
+        gate = self._gate(step, context)
+        if gate is not None:
+            return gate
         try:
             definition = get_step(step.type)
         except KeyError as e:

@@ -207,7 +207,7 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
                 "type": "workflow_actions",
                 "config": {
                     "schemaVersion": self.rules.schemaVersion,
-                    "rules": [r.model_dump(exclude_none=True) for r in self.rules.rules],
+                    "rules": [r.model_dump(exclude_none=True, by_alias=True) for r in self.rules.rules],
                     **({"statePath": self.config.statePath} if self.config.statePath else {}),
                     **({"connections": self.config.connections} if self.config.connections else {}),
                     **({"runHistory": self.config.runHistory} if self.config.runHistory else {}),

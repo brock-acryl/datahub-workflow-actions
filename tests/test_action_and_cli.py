@@ -472,3 +472,43 @@ def test_cli_simulate_tick(tmp_path, capsys):
     assert ctx["event"]["type"] == "Schedule" and ctx["event"]["id"] == "schedule:nightly-tag:1772344800000"
     assert ctx["event"]["scheduled"].startswith("2026-03-01T06:00:00") and "entity" not in ctx
     assert cli.main(["simulate", "--rules", str(rules)]) == 1  # neither --event nor --tick
+
+
+def test_cli_validate_and_simulate_walk_branch_lanes(tmp_path, capsys):
+    good = {"schemaVersion": 1, "rules": [{"id": "r", "workflowUrn": WF, "on": {"operation": "COMPLETED", "result": "ACCEPTED"}, "steps": [
+        {"id": "b", "type": "branch", "if": {"operator": "AND", "filters": [{"field": "entity.platform", "values": ["Snowflake"]}]},
+         "then": [{"id": "yes", "type": "add_tag", "params": {"entity": "{{ entity.urn }}", "tag": "urn:li:tag:snow"}}],
+         "else": [{"id": "no", "type": "webhook", "params": {"url": "http://hooks.invalid/x"}}]}]}]}
+    rules = tmp_path / "rules.json"
+    rules.write_text(json.dumps(good))
+    assert cli.main(["validate", str(rules)]) == 0
+    capsys.readouterr()
+    bad = json.loads(json.dumps(good))
+    bad["rules"][0]["steps"][0]["else"][0]["type"] = "nope"
+    rules.write_text(json.dumps(bad))
+    assert cli.main(["validate", str(rules)]) == 1
+    assert "r/no: unknown step type 'nope'" in capsys.readouterr().err
+    # simulate shows the branch row, the skipped lane and the taken lane
+    rules.write_text(json.dumps(good))
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps(completed_event()))
+    fixtures = tmp_path / "fixtures.json"
+    fixtures.write_text(json.dumps(FIXTURES))
+    assert cli.main(["simulate", "--rules", str(rules), "--event", str(event), "--fixtures", str(fixtures)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    steps = {s["stepId"]: s for s in out["runs"][0]["steps"]}
+    assert steps["b"]["output"]["taken"] == "then" and steps["no"]["status"] == "skipped" and steps["yes"]["status"] == "dry-run"
+
+
+def test_example_branch_rules_take_the_snowflake_lane(capsys):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    rules = str(root / "examples" / "branch-rules.yaml")
+    assert cli.main(["validate", rules]) == 0
+    capsys.readouterr()
+    code = cli.main(["simulate", "--rules", rules, "--event", str(root / "examples" / "events" / "tag_added.json"), "--fixtures", str(root / "examples" / "events" / "fixtures.json")])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0
+    steps = {s["stepId"]: s["status"] for s in out["runs"][0]["steps"]}
+    assert steps == {"platform": "dry-run", "ask": "skipped", "steward": "dry-run", "done": "dry-run"}

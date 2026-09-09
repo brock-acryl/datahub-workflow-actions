@@ -319,13 +319,14 @@
     },
     "Step": {
       "additionalProperties": false,
+      "description": "One step of a rule. ``type: branch`` is not a catalog step: it evaluates ``if`` and runs\neither ``then`` or ``else`` (each a list of steps, nesting allowed), then the rule continues.",
       "properties": {
         "id": {
           "minLength": 1,
           "type": "string"
         },
         "type": {
-          "description": "A step type from the catalog (add_tag, webhook, \u2026).",
+          "description": "A step type from the catalog (add_tag, webhook, \u2026), or `branch`.",
           "minLength": 1,
           "type": "string"
         },
@@ -446,6 +447,48 @@
           ],
           "default": null,
           "description": "Template; defaults to event id + rule id + step id (+ item index)."
+        },
+        "if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterGroup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch steps only: the condition that picks `then` (true) or `else` (false)."
+        },
+        "then": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Step"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch steps only: steps run when `if` holds."
+        },
+        "else": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Step"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch steps only: steps run when `if` does not hold."
         }
       },
       "required": [

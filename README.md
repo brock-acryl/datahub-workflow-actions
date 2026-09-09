@@ -36,7 +36,7 @@ pip install datahub-workflow-actions          # also registers the `datahub-work
 **From an ingestion recipe (what the MFE writes)** — see `examples/recipe.yaml`. The source starts a datahub-actions pipeline
 in-process (Kafka `EntityChangeEvent_v1` → `workflow_actions`) and runs until stopped. Set the executor for the
 "Workflow Actions" ingestion source and add this package as an extra pip requirement
-(`extra_pip_requirements: ["datahub-workflow-actions==0.7.1"]`, or a wheel path/URL the executor can reach).
+(`extra_pip_requirements: ["datahub-workflow-actions==0.8.0"]`, or a wheel path/URL the executor can reach).
 Inside the executor the source takes its Kafka connection from `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`
 and its DataHub connection from the ingestion context (else `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`), so no
 connection config is needed in the recipe. If the executor cannot build dynamic venvs (dev images), install the
@@ -164,6 +164,35 @@ steps:
     batch: { size: 100 }
     params: { entity: "{{ item.urn }}", tag: "urn:li:tag:governed" }
 ```
+
+## Branches (if … then / else) (§22)
+
+A step of `type: branch` evaluates `if` — the same conditions as a rule's `when`, so it can read
+the context (`entity.*`, `actor.*`, `form.*`, …) and earlier step outputs (`steps.<id>.output`) —
+and runs the `then` lane when it holds, otherwise the `else` lane. Lanes are ordinary step lists
+(branches nest, up to 5 deep); when the lane finishes the rule continues with the steps after the
+branch. Step ids are unique across the whole rule, lanes included.
+
+```yaml
+steps:
+  - id: platform
+    type: branch
+    "if": { operator: AND, filters: [{ field: entity.platform, values: [Snowflake] }] }
+    then:
+      - { id: grant, type: sql, params: { connection: warehouse, template: grant_select } }
+    else:
+      - { id: ask, type: slack, params: { channel: "#data-access", text: "Manual grant needed for {{ entity.name }}" } }
+  - id: notify
+    type: webhook
+    params: { url: "https://hooks.example/done" }
+```
+
+A branch has no `params`, `forEach`, `retry` or timeout of its own; its `when`/`enabled` still
+apply and skip the whole block. In the run the branch appears as one row (`output.taken` is `then`
+or `else`), the steps of the lane that did not run appear as `skipped` ("branch 'platform' took
+then") so every step id stays addressable, and the taken lane's steps appear as usual. A failure
+inside a lane follows the normal error policy (`fail` / `stop` end the rule, `continue` goes on).
+`workflow-actions validate` and `simulate` walk lanes; see `examples/branch-rules.yaml`.
 
 ## Event triggers (§21)
 
