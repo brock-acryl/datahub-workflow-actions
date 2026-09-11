@@ -281,18 +281,20 @@ schedule rule for that tick; see `examples/schedule-rules.yaml`.
 
 ## How the engine listens (Kafka or the DataHub Cloud Events API)
 
-Cloud offers two transports and the engine picks the way the executor itself does (`eventSource: auto`):
+The default (`eventSource: auto`) is the **Events API**, the same transport DataHub Cloud's own
+actions use, so a recipe with nothing set works on any Cloud executor:
 
-- **kafka** — subscribe to DataHub's broker directly. Chosen when a broker is configured (a `kafka`
-  block in the recipe, or `KAFKA_BOOTSTRAP_SERVER` / `DATAHUB_EXECUTOR_INTERNAL_TOPIC` in the
-  environment — the hosted executor).
 - **datahub-cloud** — poll GMS's Events API (`/openapi/v1/events/poll`) over HTTPS with the same
-  DataHub connection the steps use. Chosen when no broker is reachable — a remote executor in your
-  network. Offsets live server-side under the pipeline name, so each executor's engine has its own
-  position. Its "all events acked within N seconds" guard is set to 15 minutes to match the Kafka
-  poll ceiling; tune with `cloudEvents` (e.g. `lookback_days`, `reset_offsets`).
+  DataHub connection the steps use. Offsets live server-side under the pipeline name, so each
+  engine has its own position. Its "all events acked within N seconds" guard is set to 15 minutes
+  to match the Kafka poll ceiling; tune with `cloudEvents` (e.g. `lookback_days`, `reset_offsets`).
+- **kafka** — subscribe to DataHub's broker directly. Used only when the recipe asks for it: a
+  `kafka` block (connection, topic routes) or `eventSource: kafka`, which then takes the broker from
+  `KAFKA_BOOTSTRAP_SERVER` / `SCHEMA_REGISTRY_URL`. A broker in the executor's environment alone
+  never switches the default — on Cloud the executor's broker carries its internal task topic, not
+  the change log, and versions before 0.8.2 that picked Kafka from it sat on missing topics.
 
-Force either with `eventSource: kafka | datahub-cloud`.
+Self-hosted deployments without the Events API set `eventSource: kafka`.
 
 ## Hot reload, consumer group and poll interval
 

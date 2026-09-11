@@ -110,7 +110,7 @@ class WorkflowActionsSourceConfig(ConfigModel):  # type: ignore[misc]
     executorId: Optional[str] = Field(None, description="Executor pool this source runs on (the MFE writes it); falls back to DATAHUB_EXECUTOR_WORKER_ID.")
     eventSource: Literal["auto", "kafka", "datahub-cloud"] = Field(
         "auto",
-        description="How the engine listens. kafka: subscribe to DataHub's broker (needs network access to it). datahub-cloud: poll GMS's Events API over HTTPS (works from a remote executor). auto: kafka when a broker is configured (recipe `kafka` block or KAFKA_BOOTSTRAP_SERVER), else datahub-cloud.",
+        description="How the engine listens. datahub-cloud: poll GMS's Events API over HTTPS with the executor's DataHub connection (the default — the same transport Cloud's own actions use). kafka: subscribe to DataHub's broker directly (needs network access to it and the change-log topics). auto: kafka only when the recipe carries a `kafka` block, else datahub-cloud.",
     )
     cloudEvents: Optional[Dict[str, Any]] = Field(
         None, description="Overrides for the datahub-cloud event source (lookback_days, reset_offsets, …)."
@@ -167,12 +167,15 @@ class WorkflowActionsSource(Source):  # type: ignore[misc]
         return name if isinstance(name, str) and name.startswith("urn:li:dataHubIngestionSource:") else None
 
     def resolve_event_source(self) -> str:
-        """Mirror the executor's own rule: direct Kafka when a broker is reachable, else the Events API."""
+        """The Events API unless the recipe asks for Kafka. Cloud's own actions (RemoteActionSource) only
+        ever poll the Events API; a broker in the executor's environment (KAFKA_BOOTSTRAP_SERVER is set
+        for the executor's internal topic) says nothing about whether the change-log topics are
+        reachable from there — on Cloud they are not, and auto-picking Kafka left the engine subscribed
+        to topics that did not exist. Self-hosted deployments without the Events API set
+        `eventSource: kafka` or a `kafka` block."""
         if self.config.eventSource != "auto":
             return self.config.eventSource
-        if self.config.kafka or os.environ.get("KAFKA_BOOTSTRAP_SERVER") or os.environ.get("DATAHUB_EXECUTOR_INTERNAL_TOPIC"):
-            return "kafka"
-        return "datahub-cloud"
+        return "kafka" if self.config.kafka else "datahub-cloud"
 
     def event_source_config(self) -> Dict[str, Any]:
         if self.resolve_event_source() == "kafka":
