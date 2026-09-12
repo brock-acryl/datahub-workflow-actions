@@ -79,6 +79,26 @@ query workflowActionsRequest($urn: String!) {
   }
 }"""
 
+# `actionRequest(urn)` only returns requests the caller created. The engine runs as a service user,
+# so for everyone else's requests it must go through the list, which `allActionRequests` opens up.
+ACTION_REQUEST_LIST_QUERY = """
+query workflowActionsRequestByUrn($urn: String!) {
+  listActionRequests(input: { start: 0, count: 1, allActionRequests: true, orFilters: [{ and: [{ field: "urn", values: [$urn] }] }] }) {
+    actionRequests {
+      urn
+      description status result resultNote
+      entity { urn type }
+      created { time actor { urn username } }
+      params { workflowFormRequest {
+        workflowUrn
+        workflow { urn name steps { id description } trigger { form { fields { id name } } } }
+        fields { id values { ... on StringValue { stringValue } ... on NumberValue { numberValue } } }
+        decisions { stepId result note timestamp decidedBy { urn username } }
+      } }
+    }
+  }
+}"""
+
 WORKFLOW_QUERY = """
 query workflowActionsWorkflow($urn: String!) {
   entity(urn: $urn) {
@@ -158,7 +178,14 @@ class GraphResolver:
         return result
 
     def get_action_request(self, urn: str) -> Optional[dict]:
-        return self._query(ACTION_REQUEST_QUERY, urn, "actionRequest")
+        direct = self._query(ACTION_REQUEST_QUERY, urn, "actionRequest")
+        if direct:
+            return direct
+        # Not ours (the engine is never the requester): look it up through the list instead.
+        listed = self._query(ACTION_REQUEST_LIST_QUERY, urn, "listActionRequests") or {}
+        requests = listed.get("actionRequests") if isinstance(listed, Mapping) else None
+        match = next((r for r in requests or [] if isinstance(r, Mapping) and r.get("urn") == urn), None)
+        return dict(match) if match else None
 
     def get_workflow(self, urn: str) -> Optional[dict]:
         return self._query(WORKFLOW_QUERY, urn, "entity")

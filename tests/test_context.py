@@ -205,3 +205,39 @@ def test_entity_doc_exposes_deprecation_structured_properties_and_names(fixtures
     assert _entity_doc(ADMIN, {}, resolver)["name"] == "DataHub Admin"
     # unresolved entities degrade to the urn's name
     assert _entity_doc("urn:li:tag:unknown", {}, resolver)["name"] == "unknown"
+
+
+def test_graph_resolver_falls_back_to_the_request_list_for_requests_the_caller_did_not_create():
+    """`actionRequest(urn)` is null for other people's requests; the engine (a service user) must
+    still see the requester, form and decisions, so it goes through listActionRequests."""
+    from datahub_workflow_actions.context import GraphResolver
+
+    urn = "urn:li:actionRequest:r-1"
+    doc = {"urn": urn, "status": "COMPLETED", "created": {"actor": {"urn": "urn:li:corpuser:jdoe"}}}
+
+    class Graph:
+        def __init__(self):
+            self.calls = []
+
+        def execute_graphql(self, query, variables=None, **_):
+            self.calls.append(query.split("(", 1)[0].strip())
+            if "listActionRequests" in query:
+                return {"listActionRequests": {"actionRequests": [doc]}}
+            return {"actionRequest": None}
+
+    graph = Graph()
+    resolver = GraphResolver(graph)
+    assert resolver.get_action_request(urn) == doc
+    assert [c for c in graph.calls if "workflowActionsRequest" in c] == ["query workflowActionsRequest", "query workflowActionsRequestByUrn"]
+    # Cached: a second lookup makes no further calls.
+    assert resolver.get_action_request(urn) == doc
+    assert len(graph.calls) == 2
+
+    class Direct(Graph):
+        def execute_graphql(self, query, variables=None, **_):
+            self.calls.append(query)
+            return {"actionRequest": doc}
+
+    direct = Direct()
+    assert GraphResolver(direct).get_action_request(urn) == doc
+    assert len(direct.calls) == 1
