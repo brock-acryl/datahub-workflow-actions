@@ -279,6 +279,32 @@ fires once per pool. Runs record under `urn:li:dataFlow:(workflow-actions,schedu
 `triggerType=schedule` and `scheduledAt`. `workflow-actions simulate --tick <ISO|ms>` dry-runs every
 schedule rule for that tick; see `examples/schedule-rules.yaml`.
 
+## Raising workflow requests (fan-out)
+
+The `raise_workflow` step starts a new request in a workflow, filled in from the current context.
+Combined with `forEach` it fans one request out into many — one per selected data product, say:
+
+```yaml
+- id: fan-out
+  type: raise_workflow
+  forEach: form.f_data_products          # a multi-value field of the first workflow
+  params:
+    workflow: urn:li:actionWorkflow:per-product-access
+    entity: "{{ item }}"                  # the new request is about this data product
+    fields:
+      f_reason: "{{ form.f_reason }}"     # target workflow's field ids → values (templated)
+      f_requested_for: "{{ requester.urn }}"
+    description: "Split from request {{ request.id }} by {{ requester.name }}"
+    requestId: "{{ request.id }}-{{ index }}"   # stable id: a replay does not raise it twice
+```
+
+Values are strings (or lists for multi-value fields; numbers and booleans are coerced). The step
+calls `createActionWorkflowFormRequestV2` and fails with the workflow's own field errors when the
+answers do not fit its form. Outputs: `urn`, `id`. The new requests are raised by the engine's
+service user; put the original requester into a field or the description if reviewers need it.
+A rule that raises into the workflow it listens to will fire again for each new request unless its
+trigger or conditions exclude them — the MFE warns about that.
+
 ## How the engine listens (Kafka or the DataHub Cloud Events API)
 
 The default (`eventSource: auto`) is the **Events API**, the same transport DataHub Cloud's own

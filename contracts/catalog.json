@@ -520,6 +520,81 @@
     "bulkParam": null
   },
   {
+    "type": "raise_workflow",
+    "label": "Raise workflow request",
+    "description": "Start a new request in a workflow, filled in from this one \u2014 once, or once per item.",
+    "group": "Workflows",
+    "params": {
+      "workflow": {
+        "description": "URN of the workflow to raise a request in.",
+        "type": "string"
+      },
+      "entity": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Asset the new request is about (entity URN). With for-each over a list of assets, {{ item }}."
+      },
+      "fields": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          },
+          {
+            "items": {},
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Form answers for the new request by field id, e.g. {\"f_reason\": \"{{ form.f_reason }}\", \"f_owner\": \"{{ requester.urn }}\"}. A list fills a multi-value field."
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Description shown to the new request's reviewers."
+      },
+      "requestId": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Stable id for the new request (letters, digits, - and _) so a replay does not raise it twice, e.g. {{ request.id }}-{{ index }}."
+      }
+    },
+    "required": [
+      "workflow"
+    ],
+    "outputs": {
+      "urn": "The new request's URN",
+      "id": "The new request's id"
+    },
+    "bulkParam": null
+  },
+  {
     "type": "remove_owner",
     "label": "Remove owner",
     "description": "Remove a user or group from the owners.",

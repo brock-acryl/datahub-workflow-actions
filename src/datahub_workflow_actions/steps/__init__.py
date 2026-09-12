@@ -125,4 +125,4 @@ def catalog() -> List[dict]:
 
 def _ensure_loaded() -> None:
     # Import the built-in step modules once; they register themselves.
-    from datahub_workflow_actions.steps import integration, lookup, metadata, sql  # noqa: F401
+    from datahub_workflow_actions.steps import integration, lookup, metadata, sql, workflows  # noqa: F401

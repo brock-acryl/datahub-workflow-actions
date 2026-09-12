@@ -22,7 +22,7 @@ def test_split_list_keeps_dataset_urns_whole():
 
 def test_catalog_lists_every_step_with_params_and_outputs():
     types = known_step_types()
-    for expected in ["add_tag", "remove_tag", "add_term", "remove_term", "add_owner", "remove_owner", "set_domain", "clear_domain", "add_to_data_product", "set_structured_property", "deprecate", "undeprecate", "update_description", "webhook", "slack", "teams", "email", "jira_issue", "wait"]:
+    for expected in ["add_tag", "remove_tag", "add_term", "remove_term", "add_owner", "remove_owner", "set_domain", "clear_domain", "add_to_data_product", "set_structured_property", "deprecate", "undeprecate", "update_description", "webhook", "slack", "teams", "email", "jira_issue", "wait", "raise_workflow"]:
         assert expected in types
     entry = next(c for c in catalog() if c["type"] == "webhook")
     assert "url" in entry["params"] and entry["outputs"]["status"]
@@ -138,3 +138,87 @@ def test_webhook_headers_are_always_strings():
         assert out["status"] == 200
         sent = mock.calls[0].request.headers
         assert sent["X-Count"] == "5" and sent["X-Tick"] == "2026-03-01"
+
+
+WORKFLOW = "urn:li:actionWorkflow:target"
+
+
+class _RaiseGraph:
+    """Answers createActionWorkflowFormRequestV2 like GMS: a request urn, or per-field errors."""
+
+    def __init__(self, field_errors=None):
+        self.calls = []
+        self.field_errors = field_errors or []
+
+    def execute_graphql(self, query, variables=None, **_):
+        self.calls.append((query, variables))
+        rid = (variables or {}).get("input", {}).get("id") or "generated"
+        return {"createActionWorkflowFormRequestV2": {"request": None if self.field_errors else {"urn": f"urn:li:actionRequest:{rid}"}, "fieldErrors": self.field_errors}}
+
+
+def test_raise_workflow_builds_the_request_input_and_returns_the_new_urn():
+    graph = _RaiseGraph()
+    out = run(
+        "raise_workflow",
+        {
+            "workflow": WORKFLOW,
+            "entity": "urn:li:dataProduct:p1",
+            "fields": {"f_reason": "Access for p1", "f_owner": ["urn:li:corpuser:a", "urn:li:corpuser:b"], "f_count": 3, "f_flag": True, "f_skip": ""},
+            "description": "Raised from request 42",
+            "requestId": "req-42-0",
+        },
+        RunContext(graph=graph),
+    )
+    assert out == {"urn": "urn:li:actionRequest:req-42-0", "id": "req-42-0"}
+    query, variables = graph.calls[0]
+    assert "createActionWorkflowFormRequestV2" in query
+    assert variables["input"] == {
+        "workflowUrn": WORKFLOW,
+        "entityUrn": "urn:li:dataProduct:p1",
+        "description": "Raised from request 42",
+        "id": "req-42-0",
+        "fields": [
+            {"id": "f_reason", "values": [{"stringValue": "Access for p1"}]},
+            {"id": "f_owner", "values": [{"stringValue": "urn:li:corpuser:a"}, {"stringValue": "urn:li:corpuser:b"}]},
+            {"id": "f_count", "values": [{"numberValue": 3.0}]},
+            {"id": "f_flag", "values": [{"stringValue": "true"}]},
+        ],
+    }
+
+
+def test_raise_workflow_accepts_fields_as_a_json_string_and_reports_field_errors():
+    graph = _RaiseGraph()
+    out = run("raise_workflow", {"workflow": WORKFLOW, "fields": '{"f_a": "x"}'}, RunContext(graph=graph))
+    assert out["urn"] == "urn:li:actionRequest:generated"
+    assert graph.calls[0][1]["input"]["fields"] == [{"id": "f_a", "values": [{"stringValue": "x"}]}]
+    rejecting = _RaiseGraph(field_errors=[{"fieldId": "f_a", "errorMessage": "is required"}])
+    try:
+        run("raise_workflow", {"workflow": WORKFLOW}, RunContext(graph=rejecting))
+    except RuntimeError as e:
+        assert "f_a: is required" in str(e)
+    else:
+        raise AssertionError("expected the field errors to fail the step")
+
+
+def test_raise_workflow_validates_the_workflow_urn_request_id_and_fields():
+    definition = get_step("raise_workflow")
+    assert definition.validate_template({"workflow": "urn:li:dataset:x"}) == [
+        "workflow must be a workflow URN (urn:li:actionWorkflow:…), got 'urn:li:dataset:x'"
+    ]
+    assert definition.validate_template({"workflow": "{{ form.f_target }}", "fields": "not json"}) == [
+        "fields must be a JSON object of field id → value"
+    ]
+    assert definition.validate_template({"workflow": WORKFLOW, "fields": '["list"]'}) == ["fields must be a JSON object of field id → value"]
+    for bad in ({"workflow": "urn:li:dataset:x"}, {"workflow": WORKFLOW, "requestId": "has space"}):
+        try:
+            run("raise_workflow", bad, RunContext(graph=_RaiseGraph()))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected {bad} to be rejected")
+
+
+def test_raise_workflow_dry_run_describes_without_calling():
+    out = run("raise_workflow", {"workflow": WORKFLOW, "requestId": "r1", "fields": {"f": "v"}}, RunContext(dry_run=True))
+    assert out["dryRun"] is True and out["urn"] == "urn:li:actionRequest:r1"
+    assert out["input"]["fields"] == [{"id": "f", "values": [{"stringValue": "v"}]}]
